@@ -9,6 +9,8 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Material.Icons;
+using Material.Icons.Avalonia;
 using ScriptAppDashboard.Models;
 using ScriptAppDashboard.Services;
 
@@ -92,6 +94,25 @@ public partial class MainWindow : Window
         if (bmp is not null)
         {
             iconControl = new Image { Source = bmp, Width = 56, Height = 56, Stretch = Stretch.Uniform };
+        }
+        else if (item.IconKind.Length > 0 && Enum.TryParse<MaterialIconKind>(item.IconKind, out var kind))
+        {
+            iconControl = new Border
+            {
+                Width = 56,
+                Height = 56,
+                CornerRadius = new CornerRadius(14),
+                Background = new SolidColorBrush(ColorForName(item.Name)),
+                Child = new MaterialIcon
+                {
+                    Kind = kind,
+                    Width = 34,
+                    Height = 34,
+                    Foreground = Brushes.White,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
+            };
         }
         else
         {

@@ -3,6 +3,7 @@ using System.IO;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Material.Icons;
 using ScriptAppDashboard.Models;
 
 namespace ScriptAppDashboard.Views;
@@ -13,6 +14,8 @@ public partial class EditScriptWindow : Window
     { "auto", "python", "pwsh", "bash", "node", "cmd", "direct", "custom" };
 
     private readonly ScriptItem? _existing;
+    private string _iconPath = "";
+    private string _iconKind = "";
 
     public EditScriptWindow() : this(null) { }
 
@@ -29,7 +32,8 @@ public partial class EditScriptWindow : Window
             ArgsBox.Text = existing.Arguments;
             WorkDirBox.Text = existing.WorkingDirectory;
             CustomBox.Text = existing.CustomCommand;
-            IconBox.Text = existing.IconPath;
+            _iconPath = existing.IconPath;
+            _iconKind = existing.IconKind;
             KeepOpenCheck.IsChecked = existing.KeepConsoleOpen;
             var idx = Array.IndexOf(InterpreterCodes, existing.Interpreter);
             InterpCombo.SelectedIndex = idx >= 0 ? idx : 0;
@@ -51,12 +55,32 @@ public partial class EditScriptWindow : Window
         CustomPanel.IsEnabled = InterpCombo.SelectedIndex == Array.IndexOf(InterpreterCodes, "custom");
     }
 
-    private void IconBox_Changed(object? sender, TextChangedEventArgs e) => UpdateIconPreview();
-
     private void UpdateIconPreview()
     {
-        if (IconPreview is null) return; // fires during XAML load
-        IconPreview.Source = UiHelpers.TryLoadBitmap(IconBox.Text);
+        var bmp = UiHelpers.TryLoadBitmap(_iconPath);
+        IconPreview.Source = bmp;
+        IconPreview.IsVisible = bmp is not null;
+
+        var hasGlyph = bmp is null && Enum.TryParse<MaterialIconKind>(_iconKind, out var kind) && _iconKind.Length > 0;
+        GlyphPreview.IsVisible = hasGlyph;
+        if (hasGlyph) GlyphPreview.Kind = Enum.Parse<MaterialIconKind>(_iconKind);
+
+        IconDesc.Text = bmp is not null
+            ? Path.GetFileName(_iconPath)
+            : hasGlyph ? $"Library icon: {_iconKind}"
+            : "Auto (colored initials)";
+    }
+
+    private async void PickLibraryIcon_Click(object? sender, RoutedEventArgs e)
+    {
+        var picker = new IconPickerWindow();
+        var chosen = await picker.ShowDialog<string?>(this);
+        if (chosen is not null)
+        {
+            _iconKind = chosen;
+            _iconPath = "";
+            UpdateIconPreview();
+        }
     }
 
     private async void BrowseScript_Click(object? sender, RoutedEventArgs e)
@@ -113,10 +137,19 @@ public partial class EditScriptWindow : Window
             FileTypeFilter = new[] { FilePickerFileTypes.ImageAll },
         });
         if (files.Count > 0)
-            IconBox.Text = files[0].Path.LocalPath;
+        {
+            _iconPath = files[0].Path.LocalPath;
+            _iconKind = "";
+            UpdateIconPreview();
+        }
     }
 
-    private void ClearIcon_Click(object? sender, RoutedEventArgs e) => IconBox.Text = "";
+    private void ClearIcon_Click(object? sender, RoutedEventArgs e)
+    {
+        _iconPath = "";
+        _iconKind = "";
+        UpdateIconPreview();
+    }
 
     private void Save_Click(object? sender, RoutedEventArgs e)
     {
@@ -141,7 +174,8 @@ public partial class EditScriptWindow : Window
             WorkingDirectory = WorkDirBox.Text?.Trim() ?? "",
             Interpreter = InterpreterCodes[Math.Max(0, InterpCombo.SelectedIndex)],
             CustomCommand = CustomBox.Text?.Trim() ?? "",
-            IconPath = IconBox.Text?.Trim() ?? "",
+            IconPath = _iconPath,
+            IconKind = _iconKind,
             KeepConsoleOpen = KeepOpenCheck.IsChecked == true,
         });
     }

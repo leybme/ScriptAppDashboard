@@ -5,7 +5,7 @@ A small cross-platform (Windows / macOS) desktop launcher for all your Python to
 ## Features
 
 - **Tile dashboard** — every script is a clickable tile. Click to run, right-click to Run / Edit / Open Containing Folder / Remove.
-- **Custom icon, path & parameters** — each tile has a name, script path, command-line parameters, working directory and an optional custom icon (.png / .jpg / .ico). Without an icon, a colored initials tile is generated.
+- **Custom icon, path & parameters** — each tile has a name, script path, command-line parameters, working directory and an optional icon: pick one from the built-in **Material Design Icons** library (7,000+ searchable icons, Apache 2.0, via the MIT-licensed `Material.Icons.Avalonia` package) or use your own image file (.png / .jpg / .ico). Without an icon, a colored initials tile is generated.
 - **Interpreter support** — auto-detects from the extension (`.py`, `.ps1`, `.sh`, `.js`, `.bat`/`.cmd`, `.exe`), or pick one explicitly, including a *custom command* (e.g. a venv's `python.exe -u`).
 - **Scan running scripts** — finds script processes already running (python, node, powershell, bash, …) and lets you add them to the dashboard with one click, parameters included.
 - **Hide to tray** — closing the window hides the app to the system tray / menu bar. The tray menu also lists your scripts for instant launching without opening the window.
@@ -30,6 +30,25 @@ dotnet publish -c Release -r osx-x64 --self-contained
 ```
 
 The output lands in `bin/Release/net8.0/<rid>/publish/`. Tip: enable "Start with system" **after** moving the app to its final location, since the registered path is the running executable's path.
+
+## CI & automated releases
+
+GitHub Actions is set up in `.github/workflows/`:
+
+- **CI** (`ci.yml`) — every push to `main` and every pull request builds the app in Release mode on both Windows and macOS runners.
+- **Release** (`release.yml`) — pushing a version tag builds self-contained single-file binaries for `win-x64`, `osx-x64` and `osx-arm64`, zips them, and publishes a GitHub Release with auto-generated notes and the three zips attached. The tag (minus the `v`) becomes the assembly version.
+
+To cut a release:
+
+```
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Notes:
+
+- Binaries are unsigned. On macOS, Gatekeeper will warn on first launch — right-click → Open, or run `xattr -d com.apple.quarantine ScriptAppDashboard`.
+- The pull request template lives at `.github/PULL_REQUEST_TEMPLATE.md` and pre-fills every new PR with a summary/test/checklist structure.
 
 ## Notes
 

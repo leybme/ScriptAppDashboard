@@ -12,6 +12,9 @@ public class ScriptItem
     public string WorkingDirectory { get; set; } = "";
     public string IconPath { get; set; } = "";
 
+    /// <summary>Name of a MaterialIconKind enum value; used when IconPath is empty.</summary>
+    public string IconKind { get; set; } = "";
+
     /// <summary>auto | python | pwsh | bash | node | cmd | direct | custom</summary>
     public string Interpreter { get; set; } = "auto";
     public string CustomCommand { get; set; } = "";

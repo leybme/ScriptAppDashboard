@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:materialIcons="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
         x:Class="ScriptAppDashboard.Views.EditScriptWindow"
         Title="Script"
         Width="560" SizeToContent="Height" CanResize="False"
@@ -43,14 +44,18 @@
     </DockPanel>
 
     <TextBlock Text="Icon (optional)"/>
-    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
       <Border Width="36" Height="36" Margin="0,0,8,0" CornerRadius="8" Background="#22888888">
-        <Image x:Name="IconPreview" Width="28" Height="28"/>
+        <Panel>
+          <Image x:Name="IconPreview" Width="28" Height="28" IsVisible="False"/>
+          <materialIcons:MaterialIcon x:Name="GlyphPreview" Width="26" Height="26" IsVisible="False"/>
+        </Panel>
       </Border>
-      <TextBox x:Name="IconBox" Grid.Column="1" Watermark="path to a .png / .jpg / .ico image"
-               TextChanged="IconBox_Changed"/>
-      <Button Grid.Column="2" Content="Browse…" Margin="8,0,0,0" Click="BrowseIcon_Click"/>
-      <Button Grid.Column="3" Content="Clear" Margin="8,0,0,0" Click="ClearIcon_Click"/>
+      <TextBlock x:Name="IconDesc" Grid.Column="1" VerticalAlignment="Center" Foreground="Gray"
+                 TextTrimming="CharacterEllipsis" Text="Auto (colored initials)"/>
+      <Button Grid.Column="2" Content="Library…" Margin="8,0,0,0" Click="PickLibraryIcon_Click"/>
+      <Button Grid.Column="3" Content="Image…" Margin="8,0,0,0" Click="BrowseIcon_Click"/>
+      <Button Grid.Column="4" Content="Clear" Margin="8,0,0,0" Click="ClearIcon_Click"/>
     </Grid>
 
     <CheckBox x:Name="KeepOpenCheck" Content="Keep console window open after the script exits"/>
