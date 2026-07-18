@@ -2,6 +2,16 @@
 
 A small cross-platform (Windows / macOS) desktop launcher for all your Python tools, shell scripts and utilities — so you never have to hunt for the right folder again. Built with .NET 8 and Avalonia UI.
 
+## Screenshots
+
+**Dashboard — every script is a clickable tile:**
+
+![Script App Dashboard main window](docs/images/screenshotApp.png)
+
+**Scan Running Scripts — pick up tools that are already running and add them with one click:**
+
+![Scan running scripts window](docs/images/screenshotScanRunningScripts.png)
+
 ## Features
 
 - **Tile dashboard** — every script is a clickable tile. Click to run, right-click to Run / Edit / Open Containing Folder / Remove.
@@ -55,3 +65,7 @@ Notes:
 - Config is stored at `%APPDATA%\ScriptAppDashboard\config.json` (Windows) or `~/Library/Application Support/ScriptAppDashboard/config.json` (macOS).
 - Interpreters are resolved from `PATH` (`python`, `node`, `bash`, …). If a script fails to launch, set an explicit interpreter or a custom command in its Edit dialog.
 - The process scan uses `Get-CimInstance Win32_Process` on Windows and `ps -axo pid,args` on macOS — no elevated rights needed for your own processes.
+
+## Author
+
+**Y Nguyen** ([@leybme](https://github.com/leybme))

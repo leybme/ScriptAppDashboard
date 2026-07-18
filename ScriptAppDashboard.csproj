@@ -8,6 +8,7 @@
     <RootNamespace>ScriptAppDashboard</RootNamespace>
     <AssemblyName>ScriptAppDashboard</AssemblyName>
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
+    <Authors>Y Nguyen</Authors>
   </PropertyGroup>
 
   <ItemGroup>
