@@ -1,0 +1,20 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ScriptAppDashboard.Views.ScanWindow"
+        Title="Scan Running Scripts"
+        Width="680" Height="460"
+        Icon="/Assets/icon.png"
+        WindowStartupLocation="CenterOwner">
+  <DockPanel Margin="16">
+    <TextBlock DockPanel.Dock="Top" Margin="0,0,0,10"
+               Text="Script processes currently running on this machine:"/>
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+      <Button DockPanel.Dock="Right" Content="Close" Click="Close_Click"/>
+      <Button DockPanel.Dock="Right" Content="Refresh" Margin="0,0,8,0" Click="Refresh_Click"/>
+      <TextBlock x:Name="ScanStatus" VerticalAlignment="Center" Foreground="Gray"/>
+    </DockPanel>
+    <ScrollViewer>
+      <StackPanel x:Name="RowsHost" Spacing="6"/>
+    </ScrollViewer>
+  </DockPanel>
+</Window>

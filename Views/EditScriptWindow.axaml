@@ -1,0 +1,65 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ScriptAppDashboard.Views.EditScriptWindow"
+        Title="Script"
+        Width="560" SizeToContent="Height" CanResize="False"
+        Icon="/Assets/icon.png"
+        WindowStartupLocation="CenterOwner">
+  <StackPanel Margin="20" Spacing="10">
+    <TextBlock Text="Name"/>
+    <TextBox x:Name="NameBox" Watermark="My tool"/>
+
+    <TextBlock Text="Script / program path"/>
+    <DockPanel>
+      <Button DockPanel.Dock="Right" Content="Browse…" Margin="8,0,0,0" Click="BrowseScript_Click"/>
+      <TextBox x:Name="PathBox" Watermark="d:\tools\my_tool.py"/>
+    </DockPanel>
+
+    <TextBlock Text="Parameters"/>
+    <TextBox x:Name="ArgsBox" Watermark="e.g. --port 8080 --verbose"/>
+
+    <TextBlock Text="Working directory (optional)"/>
+    <DockPanel>
+      <Button DockPanel.Dock="Right" Content="Browse…" Margin="8,0,0,0" Click="BrowseWorkDir_Click"/>
+      <TextBox x:Name="WorkDirBox" Watermark="defaults to the script's folder"/>
+    </DockPanel>
+
+    <TextBlock Text="Run with"/>
+    <ComboBox x:Name="InterpCombo" SelectedIndex="0" HorizontalAlignment="Stretch"
+              SelectionChanged="InterpCombo_Changed">
+      <ComboBoxItem Content="Auto-detect from extension"/>
+      <ComboBoxItem Content="Python"/>
+      <ComboBoxItem Content="PowerShell"/>
+      <ComboBoxItem Content="Bash"/>
+      <ComboBoxItem Content="Node.js"/>
+      <ComboBoxItem Content="Command Prompt (.bat / .cmd)"/>
+      <ComboBoxItem Content="Run directly (executable)"/>
+      <ComboBoxItem Content="Custom command…"/>
+    </ComboBox>
+
+    <DockPanel x:Name="CustomPanel" IsEnabled="False">
+      <Button DockPanel.Dock="Right" Content="Browse…" Margin="8,0,0,0" Click="BrowseCustom_Click"/>
+      <TextBox x:Name="CustomBox" Watermark="e.g. C:\venvs\demo\Scripts\python.exe -u"/>
+    </DockPanel>
+
+    <TextBlock Text="Icon (optional)"/>
+    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+      <Border Width="36" Height="36" Margin="0,0,8,0" CornerRadius="8" Background="#22888888">
+        <Image x:Name="IconPreview" Width="28" Height="28"/>
+      </Border>
+      <TextBox x:Name="IconBox" Grid.Column="1" Watermark="path to a .png / .jpg / .ico image"
+               TextChanged="IconBox_Changed"/>
+      <Button Grid.Column="2" Content="Browse…" Margin="8,0,0,0" Click="BrowseIcon_Click"/>
+      <Button Grid.Column="3" Content="Clear" Margin="8,0,0,0" Click="ClearIcon_Click"/>
+    </Grid>
+
+    <CheckBox x:Name="KeepOpenCheck" Content="Keep console window open after the script exits"/>
+
+    <TextBlock x:Name="ErrorText" Foreground="#E5484D" IsVisible="False"/>
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,6,0,0">
+      <Button Content="Cancel" Click="Cancel_Click"/>
+      <Button Content="Save" Classes="accent" IsDefault="True" Click="Save_Click"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

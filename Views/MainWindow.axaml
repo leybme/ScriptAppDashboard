@@ -1,0 +1,37 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ScriptAppDashboard.Views.MainWindow"
+        Title="Script App Dashboard"
+        Width="780" Height="540"
+        MinWidth="420" MinHeight="300"
+        Icon="/Assets/icon.png"
+        WindowStartupLocation="CenterScreen">
+  <DockPanel>
+    <Border DockPanel.Dock="Top" Padding="14,10" Background="#18808080">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+          <CheckBox x:Name="StartupCheck" Content="Start with system"/>
+          <Button Content="Hide to Tray" Click="HideButton_Click"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Content="Add Script" Classes="accent" Click="AddButton_Click"/>
+          <Button Content="Scan Running Scripts" Click="ScanButton_Click"/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <Border DockPanel.Dock="Bottom" Padding="14,6">
+      <TextBlock x:Name="StatusText" FontSize="12" Foreground="Gray"
+                 Text="Tip: click a tile to run it, right-click to edit. Closing the window hides the app to the tray."/>
+    </Border>
+
+    <Panel>
+      <TextBlock x:Name="EmptyHint" HorizontalAlignment="Center" VerticalAlignment="Center"
+                 TextAlignment="Center" Foreground="Gray"
+                 Text="No scripts yet.&#10;&#10;Click “Add Script” to pick a .py / .ps1 / .sh / .bat / .exe,&#10;or “Scan Running Scripts” to grab tools that are already open."/>
+      <ScrollViewer>
+        <WrapPanel x:Name="TileHost" Margin="10"/>
+      </ScrollViewer>
+    </Panel>
+  </DockPanel>
+</Window>
