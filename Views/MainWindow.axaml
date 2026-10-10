@@ -35,7 +35,7 @@
             </StackPanel>
           </Button>
           <Border Width="1" Height="24" Margin="2,0,10,0" Background="#40808080"/>
-          <Button AutomationProperties.Name="Notes" Margin="0,2,8,2" Click="NoteButton_Click" ToolTip.Tip="Write a quick HTML note (searchable later)">
+          <Button AutomationProperties.Name="Notes" Margin="0,2,8,2" Click="NoteButton_Click" ToolTip.Tip="Write a quick note — rich text, searchable later">
             <StackPanel Orientation="Horizontal" Spacing="6">
               <materialIcons:MaterialIcon Kind="NoteEditOutline" Width="16" Height="16"/>
               <TextBlock Text="Notes" VerticalAlignment="Center"/>

@@ -9,9 +9,11 @@ public static class ConfigService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    public static string ConfigDir => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "ScriptAppDashboard");
+    /// <summary>Where config, notes and the work log live. SCRIPTAPPDASHBOARD_DATA overrides it (tests, demos, portable use).</summary>
+    public static string ConfigDir =>
+        Environment.GetEnvironmentVariable("SCRIPTAPPDASHBOARD_DATA") is { Length: > 0 } custom
+            ? custom
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ScriptAppDashboard");
 
     private static string ConfigFile => Path.Combine(ConfigDir, "config.json");
 

@@ -25,16 +25,18 @@ dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 | `Services/WorkLogService.cs` | Records work to daily JSONL files in `worklog/` and analyses them (`Summarize`, `Search`, `TodayActiveSeconds`, `ToMarkdown`). |
 | `Services/WorkHours.cs` | Working-hours rules (wraps past midnight for night shifts). |
 | `Services/TimerService.cs` | 1-second ticker that runs the timers (beep / shell command / AI CLI via stdin). Supports pause and resume (`TimersPausedUntil` in the config). |
-| `Services/NotesService.cs` | Reads and writes `notes.json`. Also holds search, `RenderLists` (list lines → HTML for preview), `HtmlToMarkdown` / `ToMarkdown` (export). |
+| `Services/NotesService.cs` | Reads and writes `notes.json`. Also holds search, `HtmlToMarkdown` / `ToMarkdown` / `ToHtml` (export). |
+| `Services/NoteDocument.cs` | Note body model for the visual editor: `Parse` (HTML, incl. old `• `/`1. `/`◷` plain lines → `NoteBlock`s), `ToHtml`, `ToMarkdown`, and the inline markup (`**b**`, `*i*`, `` `c` ``, `[t](u)`) ↔ HTML conversion. |
 | `Services/TimestampService.cs` | Timestamp formats: .NET date formats, or a template whose `{…}` parts are formatted (InvariantCulture). |
+| `Views/NoteEditor.axaml(.cs)` | The WYSIWYG note editor (a UserControl): one row per block, each with a rendered `TextBlock` and a `TextBox` that is shown only while that block is edited. |
 | `Views/*` | One window per feature. `ToastWindow.cs` is the corner pop-up, built in code only. `UiHelpers.cs` holds `Dialogs.Confirm`. |
 
 ## Data files
 
-All under `%APPDATA%\ScriptAppDashboard`:
+All under `%APPDATA%\ScriptAppDashboard`, or the folder in the `SCRIPTAPPDASHBOARD_DATA` environment variable:
 
 - `config.json`: scripts, timers and settings.
-- `notes.json`: notes. Written atomically via a `.tmp` file then a move; an unreadable file is first backed up as `.bad`.
+- `notes.json`: notes. The body is HTML; the visual editor writes one block per line (`<p>`, `<h1-6>`, `<ul>`/`<ol>`, `<ul class="timed">` with `<span class="t">stamp</span>`, `<blockquote>`, `<pre><code>`, `<hr>`). Written atomically via a `.tmp` file then a move; an unreadable file is first backed up as `.bad`.
 - `worklog/yyyy-MM-dd.jsonl`: one JSON object per line, UTF-8 without a BOM. The `k` field is:
   - `s`: foreground sample (`app`, `title`, `sec`)
   - `o`: open windows + running scripts snapshot
@@ -67,7 +69,14 @@ All under `%APPDATA%\ScriptAppDashboard`:
 - **XAML initialisation order:** `SelectionChanged` / `TextChanged` handlers declared in XAML fire while `InitializeComponent` is still running, before later controls exist. Null-guard them (see `ApplyActionVisibility`, `UpdatePreview`).
 - **Never set `Foreground = null`** to mean "theme default": it makes the text invisible. Only assign it when overriding.
 - **Notes dirty state:** compare against a `_baseline` snapshot; don't use a flag set in `TextChanged`, because it fires late for programmatic edits.
-- **Note editor Enter key:** list continuation (bullets, numbers, `◷ time · text` time bullets) uses a **tunnel** `KeyDown` handler on `HtmlBox`, so it runs before the TextBox handles Enter.
+- **Note editor keys:** Enter / Backspace / Delete / arrows / Tab are handled by **tunnel** `KeyDown` handlers (on each block's TextBox in `NoteEditor`, and on `HtmlBox` in the HTML view), so they run before the TextBox handles them.
+- **Visual note editor:**
+  - Change a block's kind with `ApplyKind` (restyles in place) rather than rebuilding the row, so focus and undo survive.
+  - Toolbar buttons are `Focusable=False` (style in `NotesWindow.axaml`), so the caret and selection stay in the block. A TextBox clears its selection when it loses focus.
+  - `SetText` writes `Block.Text` before `TextBox.Text`, so the late `TextChanged` sees no change.
+  - Markdown shortcuts (`- `, `# `, …) are applied through `Dispatcher.UIThread.Post`, not inside `TextChanged`.
+  - Anything the editor can't represent (tables, elements with `style=`, full documents, comments) becomes a `Raw` block and is written back verbatim.
+- **Dirty state across views:** `NotesWindow.CurrentHtml()` is the editor's HTML or the HTML source. Switching views re-formats it, so the baseline is reset when the note wasn't dirty.
 - **Timer rescheduling:** `TimerService.Reschedule(id)` restarts one timer only. `Resume()` clears every countdown on purpose, so timers don't all fire at once.
 - **Work-log time accounting:**
   - Samples skip idle time (`GetLastInputInfo`) and the lock screen (`LockApp`).
@@ -77,13 +86,15 @@ All under `%APPDATA%\ScriptAppDashboard`:
 ## Testing (no unit-test project)
 
 - **Logic:** load the built DLL from **pwsh 7**. Windows PowerShell 5.1 can't load net8 assemblies.
-  `Add-Type -Path bin/Debug/net8.0/ScriptAppDashboard.dll`, then call static methods such as `NotesService.HtmlToMarkdown` or `new WorkHours(config).Contains(...)`.
+  `Add-Type -Path bin/Debug/net8.0/ScriptAppDashboard.dll`, then call static methods such as `NotesService.HtmlToMarkdown`, `NoteDocument.Parse` / `ToHtml` (check that the HTML round-trips) or `new WorkHours(config).Contains(...)`.
 - **UI:** run the debug exe and drive it with UIAutomation from pwsh:
   - Find windows by title and buttons by AutomationProperties.Name. `x:Name` becomes the AutomationId.
   - Set text with `ValuePattern`.
   - Take screenshots with `System.Drawing` `CopyFromScreen`.
   - Avalonia `MenuItem`s in flyouts don't respond to `InvokePattern`; click them with the real mouse (`SetCursorPos` + `mouse_event`).
   - Native dialogs (save file) need `SendKeys`.
+- **Demo data / screenshots:** start the exe with `SCRIPTAPPDASHBOARD_DATA` pointing at a scratch folder holding a generated `config.json`, `notes.json` and `worklog/`. Never put the user's real notes or window titles in README images. Check that the captured window really was in front (`GetForegroundWindow`) before saving the image.
+- **ValuePattern caret:** after `SetValue` the caret is at 0, so send `{END}` before `{ENTER}` when testing the note editor.
 - **Don't damage the user's data:**
   - Back up `config.json` before injecting test timers or settings, and restore it afterwards.
   - Remove only the test lines you added to today's `worklog/*.jsonl`; it also holds the user's real activity.
