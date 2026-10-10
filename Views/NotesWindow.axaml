@@ -2,8 +2,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="ScriptAppDashboard.Views.NotesWindow"
         Title="Notes"
-        Width="880" Height="580"
-        MinWidth="640" MinHeight="400"
+        Width="1040" Height="620"
+        MinWidth="760" MinHeight="400"
         Icon="/Assets/icon.png"
         WindowStartupLocation="CenterScreen">
   <Grid ColumnDefinitions="260,*" Margin="16">
@@ -22,7 +22,7 @@
     </DockPanel>
 
     <DockPanel Grid.Column="1">
-      <StackPanel x:Name="EditorControls" DockPanel.Dock="Top" Spacing="6">
+      <StackPanel x:Name="EditorControls" DockPanel.Dock="Top" IsVisible="False" Spacing="6">
         <TextBox x:Name="TitleBox" Watermark="Title"/>
         <TextBox x:Name="TagsBox" Watermark="Tags (space or comma separated)"/>
         <WrapPanel>
@@ -55,18 +55,18 @@
               </MenuFlyout>
             </Button.Flyout>
           </Button>
-          <Button x:Name="PreviewToggleButton" Content="Preview" Click="PreviewToggle_Click"/>
+          <Button x:Name="PreviewToggleButton" Content="Show code" Click="PreviewToggle_Click"/>
           <Button Content="Preview in browser" Click="Preview_Click"/>
           <Button Content="Delete" Click="Delete_Click"/>
           <Button Content="Save" Classes="accent" Click="Save_Click"/>
         </StackPanel>
         <TextBlock x:Name="StatusText" VerticalAlignment="Center" FontSize="12" Foreground="Gray"/>
       </DockPanel>
-      <Grid Margin="0,4,0,0">
-        <TextBox x:Name="HtmlBox" AcceptsReturn="True" AcceptsTab="True"
+      <Grid ColumnDefinitions="*,*" Margin="0,4,0,0">
+        <TextBox x:Name="HtmlBox" Grid.Column="0" IsVisible="False" AcceptsReturn="True" AcceptsTab="True"
                  TextWrapping="Wrap" FontFamily="Consolas,Menlo,monospace"
                  Watermark="&lt;h3&gt;Idea&lt;/h3&gt;&lt;p&gt;Remember to …&lt;/p&gt;"/>
-        <ScrollViewer x:Name="PreviewPanel" IsVisible="False" Padding="16">
+        <ScrollViewer x:Name="PreviewPanel" Grid.Column="0" Grid.ColumnSpan="2" Padding="16">
           <StackPanel Spacing="10">
             <TextBlock x:Name="TitlePreview" FontSize="24" FontWeight="Bold" TextWrapping="Wrap"/>
             <TextBlock x:Name="TagsPreview" Foreground="Gray" TextWrapping="Wrap"/>

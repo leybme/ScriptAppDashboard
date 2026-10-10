@@ -29,6 +29,9 @@ public partial class NotesWindow : Window
         TitleBox.TextChanged += MarkDirty;
         TagsBox.TextChanged += MarkDirty;
         HtmlBox.TextChanged += MarkDirty;
+        TitleBox.TextChanged += (_, _) => RefreshPreview();
+        TagsBox.TextChanged += (_, _) => RefreshPreview();
+        HtmlBox.TextChanged += (_, _) => RefreshPreview();
         Closing += (_, _) => { if (_dirty) SaveCurrent(); };
         HtmlBox.AddHandler(KeyDownEvent, HtmlBox_KeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         ApplyTimeButton();
@@ -36,6 +39,7 @@ public partial class NotesWindow : Window
         app.SettingsChanged += ApplyTimeButton;
         Closed += (_, _) => app.SettingsChanged -= ApplyTimeButton;
         RefreshList(null);
+        RefreshPreview();
     }
 
     private void MarkDirty(object? sender, TextChangedEventArgs e)
@@ -484,18 +488,21 @@ public partial class NotesWindow : Window
 
     private void PreviewToggle_Click(object? sender, RoutedEventArgs e)
     {
-        var showPreview = !PreviewPanel.IsVisible;
-        if (showPreview)
-        {
-            TitlePreview.Text = string.IsNullOrWhiteSpace(TitleBox.Text) ? "(untitled)" : TitleBox.Text.Trim();
-            TagsPreview.Text = string.Join("  ", (TagsBox.Text ?? "").Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries).Select(tag => "#" + tag.TrimStart('#')));
-            RenderBodyPreview(HtmlBox.Text ?? "");
-        }
-        PreviewPanel.IsVisible = showPreview;
-        HtmlBox.IsVisible = !showPreview;
-        EditorControls.IsVisible = !showPreview;
-        PreviewToggleButton.Content = showPreview ? "Edit" : "Preview";
-        if (!showPreview) HtmlBox.Focus();
+        var showCode = !HtmlBox.IsVisible;
+        HtmlBox.IsVisible = showCode;
+        EditorControls.IsVisible = showCode;
+        Grid.SetColumn(PreviewPanel, showCode ? 1 : 0);
+        Grid.SetColumnSpan(PreviewPanel, showCode ? 1 : 2);
+        PreviewToggleButton.Content = showCode ? "Hide code" : "Show code";
+        if (showCode) HtmlBox.Focus();
+    }
+
+    private void RefreshPreview()
+    {
+        if (TitlePreview is null || TagsPreview is null || BodyPreview is null) return;
+        TitlePreview.Text = string.IsNullOrWhiteSpace(TitleBox.Text) ? "(untitled)" : TitleBox.Text.Trim();
+        TagsPreview.Text = string.Join("  ", (TagsBox.Text ?? "").Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries).Select(tag => "#" + tag.TrimStart('#')));
+        RenderBodyPreview(HtmlBox.Text ?? "");
     }
 
     private static readonly Regex PreviewToken = new(@"(<[^>]+>)", RegexOptions.Compiled);
