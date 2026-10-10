@@ -1,13 +1,15 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="ScriptAppDashboard.Views.ScanWindow"
-        Title="Scan Running Scripts"
-        Width="680" Height="460"
+        Title="Scan Running Scripts and Apps"
+        Width="760" Height="560"
+        MinWidth="520" MinHeight="360"
         Icon="/Assets/icon.png"
         WindowStartupLocation="CenterOwner">
   <DockPanel Margin="16">
-    <TextBlock DockPanel.Dock="Top" Margin="0,0,0,10"
-               Text="Script processes currently running on this machine:"/>
+    <TextBlock DockPanel.Dock="Top" Margin="0,0,0,8"
+               Text="Scripts and apps running on this machine — press Add… to turn one into a dashboard tile:"/>
+    <TextBox x:Name="FilterBox" DockPanel.Dock="Top" Margin="0,0,0,10" Watermark="Filter by name, path or window title…"/>
     <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
       <Button DockPanel.Dock="Right" Content="Close" Click="Close_Click"/>
       <Button DockPanel.Dock="Right" Content="Refresh" Margin="0,0,8,0" Click="Refresh_Click"/>

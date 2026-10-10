@@ -1,0 +1,68 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ScriptAppDashboard.Views.NotesWindow"
+        Title="Notes"
+        Width="880" Height="580"
+        MinWidth="640" MinHeight="400"
+        Icon="/Assets/icon.png"
+        WindowStartupLocation="CenterScreen">
+  <Grid ColumnDefinitions="260,*" Margin="16">
+    <DockPanel Grid.Column="0" Margin="0,0,12,0">
+      <Button DockPanel.Dock="Top" Content="New note" Classes="accent" HorizontalAlignment="Stretch"
+              HorizontalContentAlignment="Center" Click="New_Click"/>
+      <TextBox x:Name="SearchBox" DockPanel.Dock="Top" Margin="0,8" Watermark="Search title, tags, text…"/>
+      <TextBlock DockPanel.Dock="Bottom" Margin="0,2,0,0" FontSize="11" Foreground="Gray" TextWrapping="Wrap"
+                 Text="Ctrl+S save · Ctrl+N new · Ctrl+F search"/>
+      <TextBlock x:Name="CountText" DockPanel.Dock="Bottom" Margin="0,6,0,0" FontSize="12" Foreground="Gray"/>
+      <Panel>
+        <ListBox x:Name="NoteList" SelectionChanged="NoteList_Changed"/>
+        <TextBlock x:Name="EmptyHint" Margin="12" TextWrapping="Wrap" TextAlignment="Center"
+                   VerticalAlignment="Center" Foreground="Gray" IsHitTestVisible="False"/>
+      </Panel>
+    </DockPanel>
+
+    <DockPanel Grid.Column="1">
+      <StackPanel DockPanel.Dock="Top" Spacing="6">
+        <TextBox x:Name="TitleBox" Watermark="Title"/>
+        <TextBox x:Name="TagsBox" Watermark="Tags (space or comma separated)"/>
+        <WrapPanel>
+          <WrapPanel.Styles>
+            <Style Selector="WrapPanel > Button">
+              <Setter Property="Margin" Value="0,0,4,4"/>
+            </Style>
+          </WrapPanel.Styles>
+            <Button Content="B" FontWeight="Bold" MinWidth="32" ToolTip.Tip="Bold" Click="Bold_Click"/>
+            <Button Content="I" FontStyle="Italic" MinWidth="32" ToolTip.Tip="Italic" Click="Italic_Click"/>
+            <Button Content="H" FontWeight="Bold" MinWidth="32" ToolTip.Tip="Heading" Click="Heading_Click"/>
+            <Button Content="• Bullets" ToolTip.Tip="Bulleted list — Enter adds the next bullet, Enter on an empty bullet ends the list" Click="Bullets_Click"/>
+            <Button Content="1. Numbers" ToolTip.Tip="Numbered list — Enter adds the next number" Click="Numbers_Click"/>
+            <Button Content="◷ Timed" ToolTip.Tip="Time bullets — every new item (Enter) is stamped with the current date and time" Click="Timed_Click"/>
+            <Button Content="Link" ToolTip.Tip="Hyperlink" Click="Link_Click"/>
+            <Button Content="&lt;/&gt;" ToolTip.Tip="Code" Click="Code_Click"/>
+            <Button x:Name="TimeButton" Content="🕒 Time" ToolTip.Tip="Insert the current time (format in Settings)"
+                    Click="Time_Click"/>
+        </WrapPanel>
+      </StackPanel>
+      <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
+          <Button Content="Export ▾" ToolTip.Tip="Save notes as a Markdown (.md) file">
+            <Button.Flyout>
+              <MenuFlyout>
+                <MenuItem Header="This note as Markdown…" Click="ExportCurrent_Click"/>
+                <MenuItem x:Name="ExportListMenu" Header="All notes as Markdown…" Click="ExportList_Click"/>
+                <MenuItem Header="Copy this note as Markdown" Click="CopyMarkdown_Click"/>
+              </MenuFlyout>
+            </Button.Flyout>
+          </Button>
+          <Button Content="Preview in browser" Click="Preview_Click"/>
+          <Button Content="Delete" Click="Delete_Click"/>
+          <Button Content="Save" Classes="accent" Click="Save_Click"/>
+        </StackPanel>
+        <TextBlock x:Name="StatusText" VerticalAlignment="Center" FontSize="12" Foreground="Gray"/>
+      </DockPanel>
+      <TextBox x:Name="HtmlBox" Margin="0,4,0,0" AcceptsReturn="True" AcceptsTab="True"
+               TextWrapping="Wrap" FontFamily="Consolas,Menlo,monospace"
+               Watermark="&lt;h3&gt;Idea&lt;/h3&gt;&lt;p&gt;Remember to …&lt;/p&gt;"/>
+    </DockPanel>
+  </Grid>
+</Window>

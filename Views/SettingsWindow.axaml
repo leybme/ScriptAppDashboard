@@ -1,0 +1,89 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ScriptAppDashboard.Views.SettingsWindow"
+        Title="Settings"
+        Width="620" Height="520"
+        MinWidth="520" MinHeight="420"
+        Icon="/Assets/icon.png"
+        WindowStartupLocation="CenterScreen">
+  <DockPanel Margin="16">
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
+        <Button Content="Close" Click="Close_Click"/>
+        <Button Content="Save" Classes="accent" Click="Save_Click"/>
+      </StackPanel>
+      <TextBlock x:Name="StatusText" VerticalAlignment="Center" FontSize="12" Foreground="Gray"/>
+    </DockPanel>
+
+    <TabControl>
+      <TabItem Header="General">
+        <StackPanel Spacing="12" Margin="4,16,4,0">
+          <CheckBox x:Name="StartupCheck" Content="Start with the system (hidden in the tray)"/>
+          <TextBlock Text="Settings, scripts, notes and the work log are stored in:" FontSize="12" Foreground="Gray"/>
+          <DockPanel>
+            <Button DockPanel.Dock="Right" Content="Open folder" Margin="8,0,0,0" Click="OpenConfigFolder_Click"/>
+            <TextBox x:Name="ConfigPathBox" IsReadOnly="True"/>
+          </DockPanel>
+        </StackPanel>
+      </TabItem>
+
+      <TabItem Header="Timestamp">
+        <ScrollViewer>
+          <StackPanel Spacing="10" Margin="4,16,4,0">
+            <CheckBox x:Name="TsEnabledCheck"
+                      Content="Show the “Copy time” button (main window) and “Time” button (notes)"/>
+
+            <TextBlock Text="Quick formats"/>
+            <ComboBox x:Name="PresetCombo" HorizontalAlignment="Stretch" PlaceholderText="Choose a preset…"
+                      SelectionChanged="Preset_Changed"/>
+
+            <TextBlock Text="Format"/>
+            <TextBox x:Name="FormatBox" FontFamily="Consolas,Menlo,monospace" TextChanged="Format_Changed"/>
+
+            <Border CornerRadius="6" Padding="12" Background="#14888888">
+              <StackPanel Spacing="2">
+                <TextBlock Text="Preview (what the button copies)" FontSize="12" Foreground="Gray"/>
+                <TextBlock x:Name="PreviewText" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>
+              </StackPanel>
+            </Border>
+
+            <TextBlock Text="Time-bullet format (the ◷ lines in notes — each new item gets the current time)" Margin="0,8,0,0"/>
+            <TextBox x:Name="BulletFormatBox" FontFamily="Consolas,Menlo,monospace" TextChanged="Format_Changed"/>
+            <TextBlock x:Name="BulletPreviewText" FontSize="13" Foreground="Gray"/>
+
+            <TextBlock FontSize="12" Foreground="Gray" TextWrapping="Wrap"
+                       Text="yyyy year · MM month · dd day · HH hour (24h) · hh hour (12h) · tt AM/PM · mm minute · ss second · ddd weekday · MMM month name · zzz UTC offset.&#10;Put text around the time with braces: [{HH:mm}] Standup → [09:30] Standup. Only the part inside { } is formatted."/>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <TabItem Header="Work log">
+        <ScrollViewer>
+        <StackPanel Spacing="10" Margin="4,16,4,0">
+          <CheckBox x:Name="LogEnabledCheck" Content="Record the work log (foreground app, window titles, open windows)"/>
+          <TextBlock Text="Sample every (seconds)"/>
+          <NumericUpDown x:Name="SampleBox" Minimum="5" Maximum="600" Increment="5" FormatString="0"
+                         HorizontalAlignment="Left" MinWidth="160"/>
+          <TextBlock Text="Count as idle after (minutes without keyboard / mouse)"/>
+          <NumericUpDown x:Name="IdleBox" Minimum="1" Maximum="240" Increment="1" FormatString="0"
+                         HorizontalAlignment="Left" MinWidth="160"/>
+          <TextBlock FontSize="12" Foreground="Gray" TextWrapping="Wrap"
+                     Text="Changes to the sampling interval apply as soon as you press Save. Window titles are stored only on this computer."/>
+
+          <TextBlock Text="Working hours" FontWeight="SemiBold" Margin="0,10,0,0"/>
+          <TextBlock FontSize="12" Foreground="Gray" TextWrapping="Wrap"
+                     Text="Everything is still recorded; the Work Log's “Working hours only” option counts just this time. An end before the start (e.g. 22:00 – 06:00) runs past midnight."/>
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <TextBlock Text="From" VerticalAlignment="Center"/>
+            <TextBox x:Name="WorkStartBox" Width="80" Watermark="09:00" TextChanged="WorkHours_Changed"/>
+            <TextBlock Text="to" VerticalAlignment="Center"/>
+            <TextBox x:Name="WorkEndBox" Width="80" Watermark="18:00" TextChanged="WorkHours_Changed"/>
+          </StackPanel>
+          <WrapPanel x:Name="WorkDaysPanel"/>
+          <TextBlock x:Name="WorkHoursPreview" FontSize="12" Foreground="Gray"/>
+        </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+    </TabControl>
+  </DockPanel>
+</Window>

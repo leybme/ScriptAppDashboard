@@ -10,6 +10,8 @@ namespace ScriptAppDashboard.Services;
 
 public sealed record ScannedScript(int Pid, string Interpreter, string ScriptPath, string Arguments, string CommandLine);
 
+public sealed record ScannedApp(int Pid, string Name, string ExePath, string WindowTitle);
+
 /// <summary>Finds script interpreter processes (python, node, powershell, …) that are currently running.</summary>
 public static class ProcessScanner
 {
@@ -56,6 +58,42 @@ public static class ProcessScanner
             results.Add(new ScannedScript(pid, exeName.ToLowerInvariant(), script, args, cmdline.Trim()));
         }
         return results;
+    }
+
+    /// <summary>Finds running desktop apps (processes with a visible main window). Windows only.</summary>
+    public static List<ScannedApp> ScanApps()
+    {
+        var results = new List<ScannedApp>();
+        if (!OperatingSystem.IsWindows()) return results;
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+
+        foreach (var proc in Process.GetProcesses())
+        {
+            using (proc)
+            {
+                try
+                {
+                    if (proc.Id == Environment.ProcessId) continue;
+                    if (proc.MainWindowHandle == IntPtr.Zero || string.IsNullOrWhiteSpace(proc.MainWindowTitle)) continue;
+
+                    var path = proc.MainModule?.FileName;
+                    if (string.IsNullOrEmpty(path)) continue;
+                    if (path.StartsWith(windowsDir, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (path.Contains(@"\WindowsApps\", StringComparison.OrdinalIgnoreCase)) continue; // packaged apps can't be launched by exe path
+                    if (InterpreterNames.Contains(Path.GetFileNameWithoutExtension(path))) continue; // covered by the script scan
+                    if (!seen.Add(path)) continue;
+
+                    results.Add(new ScannedApp(proc.Id, proc.ProcessName, path, proc.MainWindowTitle));
+                }
+                catch
+                {
+                    // access denied / process exited — skip
+                }
+            }
+        }
+        return results.OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     private static List<(int Pid, string CommandLine)> GetCommandLines()

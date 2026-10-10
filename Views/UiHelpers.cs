@@ -36,13 +36,13 @@ public static class Dialogs
         await win.ShowDialog(owner);
     }
 
-    public static async Task<bool> Confirm(Window owner, string title, string text)
+    public static async Task<bool> Confirm(Window owner, string title, string text, string confirmLabel = "Remove")
     {
         var result = false;
         var win = BuildShell(title, text, out var buttons);
         var no = new Button { Content = "Cancel", MinWidth = 80 };
         no.Click += (_, _) => win.Close();
-        var yes = new Button { Content = "Remove", MinWidth = 80, Classes = { "accent" } };
+        var yes = new Button { Content = confirmLabel, MinWidth = 80, Classes = { "accent" } };
         yes.Click += (_, _) => { result = true; win.Close(); };
         buttons.Children.Add(no);
         buttons.Children.Add(yes);

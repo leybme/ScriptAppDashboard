@@ -24,4 +24,65 @@ public class ScriptItem
 public class AppConfig
 {
     public List<ScriptItem> Scripts { get; set; } = new();
+    public List<IntervalTimerItem> Timers { get; set; } = new();
+
+    /// <summary>Show the "Copy time" button (main window) and "Time" button (notes).</summary>
+    public bool TimestampButtonEnabled { get; set; } = true;
+
+    /// <summary>.NET date format ("yyyy-MM-dd HH:mm") or a template with {…} parts ("[{HH:mm}] ").</summary>
+    public string TimestampFormat { get; set; } = "yyyy-MM-dd HH:mm:ss";
+
+    /// <summary>Format of the time on "◷" time-bullet lines in notes (same syntax as TimestampFormat).</summary>
+    public string TimeBulletFormat { get; set; } = "yyyy-MM-dd HH:mm";
+
+    /// <summary>Record foreground app / window titles / open windows to the daily work log.</summary>
+    public bool WorkLogEnabled { get; set; } = true;
+    public int WorkLogSampleSeconds { get; set; } = 30;
+
+    /// <summary>No keyboard/mouse input for this long counts as idle (not logged as work time).</summary>
+    public int WorkLogIdleMinutes { get; set; } = 5;
+
+    /// <summary>Working hours, "HH:mm". The work log can count only this time; an end before the start wraps past midnight.</summary>
+    public string WorkHoursStart { get; set; } = "09:00";
+    public string WorkHoursEnd { get; set; } = "18:00";
+
+    /// <summary>Working days as DayOfWeek numbers (0 = Sunday … 6 = Saturday).</summary>
+    public List<int> WorkDays { get; set; } = new() { 1, 2, 3, 4, 5 };
+
+    /// <summary>All interval timers are paused until this time; DateTime.MaxValue = until resumed, null = running.</summary>
+    public DateTime? TimersPausedUntil { get; set; }
+}
+
+public class IntervalTimerItem
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Name { get; set; } = "";
+    public double IntervalMinutes { get; set; } = 30;
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>beep | command | ai</summary>
+    public string Action { get; set; } = "beep";
+
+    /// <summary>Shell command line, used when Action is "command".</summary>
+    public string Command { get; set; } = "";
+
+    /// <summary>CLI that reads a prompt on stdin and prints the answer, e.g. "claude -p". Used when Action is "ai".</summary>
+    public string AiCommand { get; set; } = "claude -p";
+    public string Prompt { get; set; } = "";
+
+    /// <summary>Show a pop-up in the screen corner when the timer fires.</summary>
+    public bool Notify { get; set; } = true;
+
+    /// <summary>Optional text for the pop-up, e.g. "Look 6 m away for 20 seconds".</summary>
+    public string Message { get; set; } = "";
+}
+
+public class NoteItem
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Title { get; set; } = "";
+    public string Tags { get; set; } = "";
+    public string Html { get; set; } = "";
+    public DateTime Created { get; set; } = DateTime.Now;
+    public DateTime Updated { get; set; } = DateTime.Now;
 }

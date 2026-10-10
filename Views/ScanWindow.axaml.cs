@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -17,6 +18,8 @@ public partial class ScanWindow : Window
     private readonly HashSet<string> _existingPaths;
     private readonly Action<ScriptItem> _onAdded;
     private bool _scanning;
+    private List<ScannedScript> _found = new();
+    private List<ScannedApp> _apps = new();
 
     public ScanWindow() : this(new HashSet<string>(StringComparer.OrdinalIgnoreCase), _ => { }) { }
 
@@ -25,6 +28,7 @@ public partial class ScanWindow : Window
         InitializeComponent();
         _existingPaths = existingPaths;
         _onAdded = onAdded;
+        FilterBox.TextChanged += (_, _) => { if (!_scanning) Render(); };
         Loaded += async (_, _) => await RefreshAsync();
     }
 
@@ -41,9 +45,11 @@ public partial class ScanWindow : Window
         try
         {
             List<ScannedScript> found;
+            List<ScannedApp> apps;
             try
             {
                 found = await Task.Run(ProcessScanner.Scan);
+                apps = await Task.Run(ProcessScanner.ScanApps);
             }
             catch (Exception ex)
             {
@@ -51,11 +57,9 @@ public partial class ScanWindow : Window
                 return;
             }
 
-            ScanStatus.Text = found.Count == 0
-                ? "No running script processes found."
-                : $"Found {found.Count} running script(s).";
-            foreach (var script in found)
-                RowsHost.Children.Add(BuildRow(script));
+            _found = found;
+            _apps = apps;
+            Render();
         }
         finally
         {
@@ -63,9 +67,73 @@ public partial class ScanWindow : Window
         }
     }
 
-    private Control BuildRow(ScannedScript scanned)
+    private void Render()
     {
-        var alreadyAdded = _existingPaths.Contains(scanned.ScriptPath);
+        RowsHost.Children.Clear();
+        var filter = (FilterBox.Text ?? "").Trim();
+        bool Match(params string[] fields) =>
+            filter.Length == 0 || fields.Any(f => f.Contains(filter, StringComparison.OrdinalIgnoreCase));
+
+        var scripts = _found.Where(s => Match(s.ScriptPath, s.CommandLine, s.Interpreter)).ToList();
+        var apps = _apps.Where(a => Match(a.Name, a.ExePath, a.WindowTitle)).ToList();
+
+        if (scripts.Count > 0) RowsHost.Children.Add(BuildHeader($"Scripts ({scripts.Count})"));
+        foreach (var script in scripts)
+            RowsHost.Children.Add(BuildRow(script));
+
+        if (apps.Count > 0) RowsHost.Children.Add(BuildHeader($"Open apps ({apps.Count})"));
+        foreach (var app in apps)
+            RowsHost.Children.Add(BuildAppRow(app));
+
+        if (scripts.Count + apps.Count == 0)
+        {
+            RowsHost.Children.Add(new TextBlock
+            {
+                Text = _found.Count + _apps.Count == 0
+                    ? "No running scripts or apps found."
+                    : "Nothing matches the filter.",
+                Foreground = Brushes.Gray,
+                Margin = new Thickness(2, 12),
+            });
+        }
+
+        ScanStatus.Text = filter.Length == 0
+            ? $"Found {_found.Count} running script(s) and {_apps.Count} open app(s)."
+            : $"Showing {scripts.Count + apps.Count} of {_found.Count + _apps.Count}.";
+    }
+
+    private static Control BuildHeader(string text) => new TextBlock
+    {
+        Text = text,
+        FontWeight = FontWeight.Bold,
+        Margin = new Thickness(2, 6, 0, 0),
+    };
+
+    private Control BuildRow(ScannedScript scanned) => BuildRow(
+        title: $"{Path.GetFileName(scanned.ScriptPath)}   ({scanned.Interpreter}, pid {scanned.Pid})",
+        detail: scanned.CommandLine,
+        path: scanned.ScriptPath,
+        prefill: new ScriptItem
+        {
+            Name = Path.GetFileNameWithoutExtension(scanned.ScriptPath),
+            ScriptPath = scanned.ScriptPath,
+            Arguments = scanned.Arguments,
+        });
+
+    private Control BuildAppRow(ScannedApp app) => BuildRow(
+        title: $"{app.Name}   (app, pid {app.Pid})",
+        detail: $"{app.WindowTitle} — {app.ExePath}",
+        path: app.ExePath,
+        prefill: new ScriptItem
+        {
+            Name = app.Name,
+            ScriptPath = app.ExePath,
+            Interpreter = "direct",
+        });
+
+    private Control BuildRow(string title, string detail, string path, ScriptItem prefill)
+    {
+        var alreadyAdded = _existingPaths.Contains(path);
 
         var addButton = new Button
         {
@@ -78,12 +146,12 @@ public partial class ScanWindow : Window
         var info = new StackPanel { Spacing = 2 };
         info.Children.Add(new TextBlock
         {
-            Text = $"{Path.GetFileName(scanned.ScriptPath)}   ({scanned.Interpreter}, pid {scanned.Pid})",
+            Text = title,
             FontWeight = FontWeight.SemiBold,
         });
         info.Children.Add(new TextBlock
         {
-            Text = scanned.CommandLine,
+            Text = detail,
             FontSize = 11,
             Foreground = Brushes.Gray,
             TextTrimming = TextTrimming.CharacterEllipsis,
@@ -96,12 +164,6 @@ public partial class ScanWindow : Window
 
         addButton.Click += async (_, _) =>
         {
-            var prefill = new ScriptItem
-            {
-                Name = Path.GetFileNameWithoutExtension(scanned.ScriptPath),
-                ScriptPath = scanned.ScriptPath,
-                Arguments = scanned.Arguments,
-            };
             var dialog = new EditScriptWindow(prefill);
             var result = await dialog.ShowDialog<ScriptItem?>(this);
             if (result is not null)

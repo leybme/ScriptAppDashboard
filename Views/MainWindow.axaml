@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:materialIcons="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
         x:Class="ScriptAppDashboard.Views.MainWindow"
         Title="Script App Dashboard"
         Width="780" Height="540"
@@ -10,25 +11,82 @@
     <Border DockPanel.Dock="Top" Padding="14,10" Background="#18808080">
       <DockPanel>
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-          <CheckBox x:Name="StartupCheck" Content="Start with system"/>
+          <Button AutomationProperties.Name="Settings" Click="SettingsButton_Click" ToolTip.Tip="Settings">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <materialIcons:MaterialIcon Kind="CogOutline" Width="16" Height="16"/>
+              <TextBlock Text="Settings" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Button>
           <Button Content="Hide to Tray" Click="HideButton_Click"/>
         </StackPanel>
-        <StackPanel Orientation="Horizontal" Spacing="8">
-          <Button Content="Add Script" Classes="accent" Click="AddButton_Click"/>
-          <Button Content="Scan Running Scripts" Click="ScanButton_Click"/>
-        </StackPanel>
+        <WrapPanel VerticalAlignment="Center">
+          <Button AutomationProperties.Name="Add Script" Classes="accent" Margin="0,2,8,2" Click="AddButton_Click"
+                  ToolTip.Tip="Add a script or program tile">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <materialIcons:MaterialIcon Kind="Plus" Width="16" Height="16"/>
+              <TextBlock Text="Add Script" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Button>
+          <Button AutomationProperties.Name="Scan" Margin="0,2,8,2" Click="ScanButton_Click"
+                  ToolTip.Tip="Find scripts and apps that are running right now and add them as tiles">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <materialIcons:MaterialIcon Kind="Radar" Width="16" Height="16"/>
+              <TextBlock Text="Scan" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Button>
+          <Border Width="1" Height="24" Margin="2,0,10,0" Background="#40808080"/>
+          <Button AutomationProperties.Name="Notes" Margin="0,2,8,2" Click="NoteButton_Click" ToolTip.Tip="Write a quick HTML note (searchable later)">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <materialIcons:MaterialIcon Kind="NoteEditOutline" Width="16" Height="16"/>
+              <TextBlock Text="Notes" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Button>
+          <Button AutomationProperties.Name="Timers" Margin="0,2,8,2" Click="TimersButton_Click" ToolTip.Tip="Interval timers: beep, run a command or ask an AI CLI">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <materialIcons:MaterialIcon Kind="TimerOutline" Width="16" Height="16"/>
+              <TextBlock Text="Timers" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Button>
+          <Button AutomationProperties.Name="Work Log" Margin="0,2,8,2" Click="WorkLogButton_Click" ToolTip.Tip="See where your time went (apps, tabs, scripts)">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <materialIcons:MaterialIcon Kind="ChartBar" Width="16" Height="16"/>
+              <TextBlock Text="Work Log" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Button>
+          <Button AutomationProperties.Name="Search" Margin="0,2,8,2" Click="SearchButton_Click"
+                  ToolTip.Tip="Search notes and the work log together (Ctrl+F)">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <materialIcons:MaterialIcon Kind="Magnify" Width="16" Height="16"/>
+              <TextBlock Text="Search" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Button>
+          <Button x:Name="CopyTimeButton" AutomationProperties.Name="Copy time" Margin="0,2,8,2" Click="CopyTimeButton_Click">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <materialIcons:MaterialIcon Kind="ClockOutline" Width="16" Height="16"/>
+              <TextBlock Text="Copy time" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Button>
+        </WrapPanel>
       </DockPanel>
     </Border>
 
     <Border DockPanel.Dock="Bottom" Padding="14,6">
-      <TextBlock x:Name="StatusText" FontSize="12" Foreground="Gray"
-                 Text="Tip: click a tile to run it, right-click to edit. Closing the window hides the app to the tray."/>
+      <DockPanel>
+        <Button x:Name="TodayButton" DockPanel.Dock="Right" Padding="8,2" FontSize="12"
+                Background="Transparent" Foreground="Gray" IsVisible="False"
+                AutomationProperties.Name="Today's active time"
+                ToolTip.Tip="Active time recorded today — click to open the work log"
+                Click="TodayButton_Click"/>
+        <TextBlock x:Name="StatusText" FontSize="12" Foreground="Gray" VerticalAlignment="Center"
+                   TextTrimming="CharacterEllipsis"
+                   Text="Tip: click a tile to run it, right-click to edit. Closing the window hides the app to the tray."/>
+      </DockPanel>
     </Border>
 
     <Panel>
       <TextBlock x:Name="EmptyHint" HorizontalAlignment="Center" VerticalAlignment="Center"
                  TextAlignment="Center" Foreground="Gray"
-                 Text="No scripts yet.&#10;&#10;Click “Add Script” to pick a .py / .ps1 / .sh / .bat / .exe,&#10;or “Scan Running Scripts” to grab tools that are already open."/>
+                 Text="No scripts yet.&#10;&#10;Click “Add Script” to pick a .py / .ps1 / .sh / .bat / .exe,&#10;or “Scan” to grab scripts and apps that are already running."/>
       <ScrollViewer>
         <WrapPanel x:Name="TileHost" Margin="10"/>
       </ScrollViewer>

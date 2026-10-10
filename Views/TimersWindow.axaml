@@ -1,0 +1,104 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ScriptAppDashboard.Views.TimersWindow"
+        Title="Interval Timers"
+        Width="820" Height="600"
+        MinWidth="640" MinHeight="460"
+        Icon="/Assets/icon.png"
+        WindowStartupLocation="CenterScreen">
+  <Grid ColumnDefinitions="240,*" Margin="16">
+    <DockPanel Grid.Column="0" Margin="0,0,12,0">
+      <Button DockPanel.Dock="Top" Content="New timer" Classes="accent" HorizontalAlignment="Stretch"
+              HorizontalContentAlignment="Center" Margin="0,0,0,8" Click="New_Click"/>
+      <Panel DockPanel.Dock="Top" Margin="0,0,0,8">
+        <Button x:Name="PauseButton" Content="Pause all timers ▾" HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Center" ToolTip.Tip="Silence every timer for a while (also in the tray menu)">
+          <Button.Flyout>
+            <MenuFlyout>
+              <MenuItem Header="For 30 minutes" Tag="30" Click="Pause_Click"/>
+              <MenuItem Header="For 1 hour" Tag="60" Click="Pause_Click"/>
+              <MenuItem Header="For 2 hours" Tag="120" Click="Pause_Click"/>
+              <MenuItem Header="Until tomorrow morning" Tag="tomorrow" Click="Pause_Click"/>
+              <MenuItem Header="Until I resume" Tag="forever" Click="Pause_Click"/>
+            </MenuFlyout>
+          </Button.Flyout>
+        </Button>
+        <Button x:Name="ResumeButton" Classes="accent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                IsVisible="False" Click="Resume_Click"/>
+      </Panel>
+      <Panel>
+        <ListBox x:Name="TimerList" SelectionChanged="TimerList_Changed"/>
+        <TextBlock x:Name="EmptyHint" Margin="12" TextWrapping="Wrap" TextAlignment="Center"
+                   VerticalAlignment="Center" Foreground="Gray" IsHitTestVisible="False"
+                   Text="No timers yet.&#10;&#10;Pick a template on the right or press “New timer”."/>
+      </Panel>
+    </DockPanel>
+
+    <ScrollViewer Grid.Column="1">
+      <StackPanel Spacing="8">
+        <ComboBox x:Name="TemplateCombo" SelectedIndex="0" HorizontalAlignment="Stretch"
+                  SelectionChanged="Template_Changed">
+          <ComboBoxItem Content="Start from a template…"/>
+          <ComboBoxItem Content="Eye break — beep every 20 min"/>
+          <ComboBoxItem Content="Stretch / posture — beep every 45 min"/>
+          <ComboBoxItem Content="Hourly AI check-in (claude -p)"/>
+          <ComboBoxItem Content="Run a command every 15 min"/>
+        </ComboBox>
+
+        <TextBlock Text="Name"/>
+        <TextBox x:Name="NameBox" Watermark="Stretch break"/>
+
+        <TextBlock Text="Repeat every"/>
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <NumericUpDown x:Name="MinutesBox" Minimum="1" Maximum="100000" Increment="1" Value="30"
+                         FormatString="0.##" MinWidth="160"/>
+          <ComboBox x:Name="UnitCombo" SelectedIndex="1" MinWidth="130">
+            <ComboBoxItem Content="seconds"/>
+            <ComboBoxItem Content="minutes"/>
+            <ComboBoxItem Content="hours"/>
+          </ComboBox>
+        </StackPanel>
+
+        <TextBlock Text="When it fires"/>
+        <ComboBox x:Name="ActionCombo" SelectedIndex="0" HorizontalAlignment="Stretch"
+                  SelectionChanged="Action_Changed">
+          <ComboBoxItem Content="Beep"/>
+          <ComboBoxItem Content="Run a command"/>
+          <ComboBoxItem Content="Send a prompt to an AI CLI"/>
+        </ComboBox>
+
+        <StackPanel x:Name="CommandPanel" Spacing="8" IsVisible="False">
+          <TextBlock Text="Command (run through cmd / sh)"/>
+          <TextBox x:Name="CommandBox" Watermark="python D:\tools\backup.py --quick"/>
+        </StackPanel>
+
+        <StackPanel x:Name="AiPanel" Spacing="8" IsVisible="False">
+          <TextBlock Text="AI CLI command (the prompt is sent to its standard input)"/>
+          <TextBox x:Name="AiCommandBox" Watermark="claude -p"/>
+          <TextBlock Text="Prompt"/>
+          <TextBox x:Name="PromptBox" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="90"
+                   Watermark="Summarise what I should focus on next …"/>
+        </StackPanel>
+
+        <TextBlock Text="Pop-up message (optional)"/>
+        <TextBox x:Name="MessageBox" Watermark="Look at something 6 m away for 20 seconds"/>
+        <CheckBox x:Name="NotifyCheck" Content="Show a pop-up in the screen corner when it fires (with the command / AI output)"
+                  IsChecked="True"/>
+
+        <CheckBox x:Name="EnabledCheck" Content="Enabled" IsChecked="True"/>
+
+        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+          <Button Content="Run now" Click="RunNow_Click"/>
+          <Button Content="Delete" Click="Delete_Click"/>
+          <Button Content="Save" Classes="accent" Click="Save_Click"/>
+        </StackPanel>
+
+        <TextBlock x:Name="StatusText" FontSize="12" Foreground="Gray" TextWrapping="Wrap"/>
+
+        <TextBlock Text="Last output" Margin="0,8,0,0"/>
+        <TextBox x:Name="OutputBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
+                 MinHeight="110" FontFamily="Consolas,Menlo,monospace"/>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</Window>

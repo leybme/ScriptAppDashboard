@@ -27,15 +27,93 @@ public partial class MainWindow : Window
 
     private App AppRef => (App)Application.Current!;
     private AppConfig Config => AppRef.Config;
-    private bool _suppressStartupEvent;
 
     public MainWindow()
     {
         InitializeComponent();
         RefreshTiles();
-        StartupCheck.IsCheckedChanged += StartupCheck_Changed;
-        Loaded += MainWindow_Loaded;
+        ApplyTimestampButton();
+        AppRef.SettingsChanged += ApplyTimestampButton;
+        AppRef.SettingsChanged += UpdateToday;
+        _todayTimer.Tick += (_, _) => UpdateToday();
+        _todayTimer.Start();
+        Opened += (_, _) => UpdateToday();
+        Activated += (_, _) => UpdateToday();
+        Closed += (_, _) =>
+        {
+            AppRef.SettingsChanged -= ApplyTimestampButton;
+            AppRef.SettingsChanged -= UpdateToday;
+            _todayTimer.Stop();
+        };
     }
+
+    private readonly Avalonia.Threading.DispatcherTimer _todayTimer = new() { Interval = TimeSpan.FromMinutes(1) };
+
+    /// <summary>Shows "Today 2h 14m" in the status bar (reading the log off the UI thread).</summary>
+    private async void UpdateToday()
+    {
+        if (!WorkLogService.IsSupported || !Config.WorkLogEnabled || !IsVisible)
+        {
+            TodayButton.IsVisible = WorkLogService.IsSupported && IsVisible && !Config.WorkLogEnabled;
+            TodayButton.Content = "Work log off";
+            return;
+        }
+        try
+        {
+            var seconds = await Task.Run(WorkLogService.TodayActiveSeconds);
+            var minutes = (int)(seconds / 60);
+            TodayButton.Content = "Today " + (minutes >= 60 ? $"{minutes / 60}h {minutes % 60:00}m" : $"{minutes}m") + " active";
+            TodayButton.IsVisible = true;
+        }
+        catch
+        {
+            TodayButton.IsVisible = false;
+        }
+    }
+
+    private void TodayButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowWorkLog();
+
+    private void SearchButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowSearch();
+
+    protected override void OnKeyDown(Avalonia.Input.KeyEventArgs e)
+    {
+        if (e.KeyModifiers == Avalonia.Input.KeyModifiers.Control && e.Key == Avalonia.Input.Key.F)
+        {
+            AppRef.ShowSearch();
+            e.Handled = true;
+        }
+        base.OnKeyDown(e);
+    }
+
+    private void ApplyTimestampButton()
+    {
+        CopyTimeButton.IsVisible = Config.TimestampButtonEnabled;
+        ToolTip.SetTip(CopyTimeButton,
+            $"Copy the current time to the clipboard — now: {TimestampService.Now(Config.TimestampFormat)}\n(format is set in Settings)");
+    }
+
+    private async void CopyTimeButton_Click(object? sender, RoutedEventArgs e)
+    {
+        var text = TimestampService.Now(Config.TimestampFormat);
+        var clipboard = GetTopLevel(this)?.Clipboard;
+        if (clipboard is null)
+        {
+            SetStatus("The clipboard is not available.");
+            return;
+        }
+        try
+        {
+            await clipboard.SetTextAsync(text);
+            SetStatus($"Copied “{text}” — paste it where you need it.");
+            ApplyTimestampButton(); // refresh the tooltip's "now"
+        }
+        catch (Exception ex)
+        {
+            SetStatus("Could not copy to the clipboard: " + ex.Message);
+        }
+    }
+
+    private void SettingsButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowSettings();
 
     protected override void OnClosing(WindowClosingEventArgs e)
     {
@@ -45,38 +123,6 @@ public partial class MainWindow : Window
             Hide();
         }
         base.OnClosing(e);
-    }
-
-    private async void MainWindow_Loaded(object? sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var enabled = await Task.Run(StartupService.IsEnabled);
-            _suppressStartupEvent = true;
-            StartupCheck.IsChecked = enabled;
-            _suppressStartupEvent = false;
-        }
-        catch
-        {
-            // leave the checkbox unchecked if the state can't be read
-        }
-    }
-
-    private async void StartupCheck_Changed(object? sender, RoutedEventArgs e)
-    {
-        if (_suppressStartupEvent) return;
-        var enable = StartupCheck.IsChecked == true;
-        try
-        {
-            await Task.Run(() => StartupService.SetEnabled(enable));
-            SetStatus(enable
-                ? "The dashboard will start with the system (hidden in the tray)."
-                : "Auto-start disabled.");
-        }
-        catch (Exception ex)
-        {
-            SetStatus("Could not change the auto-start setting: " + ex.Message);
-        }
     }
 
     private void RefreshTiles()
@@ -241,6 +287,12 @@ public partial class MainWindow : Window
         });
         await scan.ShowDialog(this);
     }
+
+    private void NoteButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowNotes(newNote: true);
+
+    private void TimersButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowTimers();
+
+    private void WorkLogButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowWorkLog();
 
     private void HideButton_Click(object? sender, RoutedEventArgs e) => Hide();
 

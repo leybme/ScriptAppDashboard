@@ -1,0 +1,27 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ScriptAppDashboard.Views.SearchWindow"
+        Title="Search"
+        Width="760" Height="600"
+        MinWidth="520" MinHeight="380"
+        Icon="/Assets/icon.png"
+        WindowStartupLocation="CenterScreen">
+  <DockPanel Margin="16">
+    <DockPanel DockPanel.Dock="Top">
+      <ComboBox x:Name="RangeCombo" DockPanel.Dock="Right" SelectedIndex="1" MinWidth="140" Margin="8,0,0,0"
+                SelectionChanged="Range_Changed">
+        <ComboBoxItem Content="Last 7 days"/>
+        <ComboBoxItem Content="Last 30 days"/>
+        <ComboBoxItem Content="Last 90 days"/>
+        <ComboBoxItem Content="Last year"/>
+      </ComboBox>
+      <TextBox x:Name="QueryBox" Watermark="Search notes, window titles / tabs, launched scripts, timer output…"/>
+    </DockPanel>
+    <TextBlock x:Name="SummaryText" DockPanel.Dock="Top" Margin="2,8,0,4" FontSize="12" Foreground="Gray"
+               TextWrapping="Wrap"
+               Text="Type a word or two — every word must match. Notes are searched in full; the date range applies to the work log."/>
+    <ScrollViewer>
+      <StackPanel x:Name="ResultHost" Spacing="2"/>
+    </ScrollViewer>
+  </DockPanel>
+</Window>

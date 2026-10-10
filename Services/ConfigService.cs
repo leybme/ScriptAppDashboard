@@ -9,7 +9,7 @@ public static class ConfigService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    private static string ConfigDir => Path.Combine(
+    public static string ConfigDir => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "ScriptAppDashboard");
 

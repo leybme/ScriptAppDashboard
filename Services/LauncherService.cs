@@ -10,6 +10,8 @@ public static class LauncherService
 {
     public static void Launch(ScriptItem item)
     {
+        WorkLogService.LogLaunch(item);
+
         var scriptPath = item.ScriptPath;
         var workDir = !string.IsNullOrWhiteSpace(item.WorkingDirectory)
             ? item.WorkingDirectory
