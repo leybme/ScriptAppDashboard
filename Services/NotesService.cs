@@ -196,17 +196,42 @@ public static class NotesService
         return name.Length == 0 ? fallback : name;
     }
 
-    /// <summary>Writes the note to a temp .html file (wrapping fragments in a document) and returns its path.</summary>
-    public static string WritePreview(NoteItem note)
+    /// <summary>Creates a complete HTML document with a visible title.</summary>
+    public static string ToHtml(NoteItem note)
     {
         var body = note.Html;
         var isDocument = body.Contains("<html", StringComparison.OrdinalIgnoreCase);
-        var content = isDocument
-            ? body
-            : "<!doctype html><html><head><meta charset=\"utf-8\"><title>" + WebUtility.HtmlEncode(note.Title) +
+        var title = string.IsNullOrWhiteSpace(note.Title) ? "(untitled)" : note.Title.Trim();
+        var encodedTitle = WebUtility.HtmlEncode(title);
+        var heading = "<h1>" + encodedTitle + "</h1>";
+        string content;
+        if (isDocument)
+        {
+            if (Regex.IsMatch(body, @"<body\b", RegexOptions.IgnoreCase))
+                content = Regex.Replace(body, @"<body\b[^>]*>", m => m.Value + heading, RegexOptions.IgnoreCase);
+            else if (Regex.IsMatch(body, @"</head\s*>", RegexOptions.IgnoreCase))
+                content = Regex.Replace(body, @"</head\s*>", m => m.Value + "<body>" + heading + "</body>", RegexOptions.IgnoreCase);
+            else
+                content = Regex.Replace(body, @"<html\b[^>]*>", m => m.Value + "<body>" + heading + "</body>", RegexOptions.IgnoreCase);
+            if (Regex.IsMatch(content, @"<title\b[^>]*>.*?</title>", RegexOptions.Singleline | RegexOptions.IgnoreCase))
+                content = Regex.Replace(content, @"<title\b[^>]*>.*?</title>", "<title>" + encodedTitle + "</title>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            else
+                content = Regex.Replace(content, @"<head\b[^>]*>", m => m.Value + "<title>" + encodedTitle + "</title>", RegexOptions.IgnoreCase);
+        }
+        else
+        {
+            content = "<!doctype html><html><head><meta charset=\"utf-8\"><title>" + encodedTitle +
               "</title><style>body{font-family:Segoe UI,system-ui,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem;line-height:1.5}" +
-              "ul.timed{list-style:none;padding-left:0}ul.timed .t{color:#777;font-variant-numeric:tabular-nums;margin-right:.4em}</style></head><body>" +
-              RenderLists(body) + "</body></html>";
+              "h1{border-bottom:1px solid #ccc;padding-bottom:.4em}ul.timed{list-style:none;padding-left:0}ul.timed .t{color:#777;font-variant-numeric:tabular-nums;margin-right:.4em}</style></head><body>" +
+              heading + RenderLists(body) + "</body></html>";
+        }
+        return content;
+    }
+
+    /// <summary>Writes the note to a temp .html file and returns its path.</summary>
+    public static string WritePreview(NoteItem note)
+    {
+        var content = ToHtml(note);
         var path = Path.Combine(Path.GetTempPath(), $"sad-note-{note.Id:N}.html");
         File.WriteAllText(path, content);
         return path;

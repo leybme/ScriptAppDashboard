@@ -22,7 +22,7 @@
     </DockPanel>
 
     <DockPanel Grid.Column="1">
-      <StackPanel DockPanel.Dock="Top" Spacing="6">
+      <StackPanel x:Name="EditorControls" DockPanel.Dock="Top" Spacing="6">
         <TextBox x:Name="TitleBox" Watermark="Title"/>
         <TextBox x:Name="TagsBox" Watermark="Tags (space or comma separated)"/>
         <WrapPanel>
@@ -45,24 +45,36 @@
       </StackPanel>
       <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
-          <Button Content="Export ▾" ToolTip.Tip="Save notes as a Markdown (.md) file">
+          <Button Content="Export ▾" ToolTip.Tip="Export this note as Markdown or HTML">
             <Button.Flyout>
               <MenuFlyout>
                 <MenuItem Header="This note as Markdown…" Click="ExportCurrent_Click"/>
+                <MenuItem Header="This note as HTML…" Click="ExportHtml_Click"/>
                 <MenuItem x:Name="ExportListMenu" Header="All notes as Markdown…" Click="ExportList_Click"/>
                 <MenuItem Header="Copy this note as Markdown" Click="CopyMarkdown_Click"/>
               </MenuFlyout>
             </Button.Flyout>
           </Button>
+          <Button x:Name="PreviewToggleButton" Content="Preview" Click="PreviewToggle_Click"/>
           <Button Content="Preview in browser" Click="Preview_Click"/>
           <Button Content="Delete" Click="Delete_Click"/>
           <Button Content="Save" Classes="accent" Click="Save_Click"/>
         </StackPanel>
         <TextBlock x:Name="StatusText" VerticalAlignment="Center" FontSize="12" Foreground="Gray"/>
       </DockPanel>
-      <TextBox x:Name="HtmlBox" Margin="0,4,0,0" AcceptsReturn="True" AcceptsTab="True"
-               TextWrapping="Wrap" FontFamily="Consolas,Menlo,monospace"
-               Watermark="&lt;h3&gt;Idea&lt;/h3&gt;&lt;p&gt;Remember to …&lt;/p&gt;"/>
+      <Grid Margin="0,4,0,0">
+        <TextBox x:Name="HtmlBox" AcceptsReturn="True" AcceptsTab="True"
+                 TextWrapping="Wrap" FontFamily="Consolas,Menlo,monospace"
+                 Watermark="&lt;h3&gt;Idea&lt;/h3&gt;&lt;p&gt;Remember to …&lt;/p&gt;"/>
+        <ScrollViewer x:Name="PreviewPanel" IsVisible="False" Padding="16">
+          <StackPanel Spacing="10">
+            <TextBlock x:Name="TitlePreview" FontSize="24" FontWeight="Bold" TextWrapping="Wrap"/>
+            <TextBlock x:Name="TagsPreview" Foreground="Gray" TextWrapping="Wrap"/>
+            <Border Height="1" Background="#44888888"/>
+            <TextBlock x:Name="BodyPreview" FontSize="14" TextWrapping="Wrap"/>
+          </StackPanel>
+        </ScrollViewer>
+      </Grid>
     </DockPanel>
   </Grid>
 </Window>

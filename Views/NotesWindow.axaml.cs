@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Net;
 using System.Text.RegularExpressions;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -380,6 +382,40 @@ public partial class NotesWindow : Window
         await ExportAsync(NotesService.SafeFileName(note.Title, "note") + ".md", NotesService.ToMarkdown(note), "1 note");
     }
 
+    private async void ExportHtml_Click(object? sender, RoutedEventArgs e)
+    {
+        var note = EditorNote();
+        if (note.Title.Length == 0 && note.Html.Trim().Length == 0)
+        {
+            StatusText.Text = "This note is empty — nothing to export.";
+            return;
+        }
+
+        try
+        {
+            var file = await StorageProvider.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
+            {
+                Title = "Export as HTML",
+                SuggestedFileName = NotesService.SafeFileName(note.Title, "note") + ".html",
+                DefaultExtension = "html",
+                ShowOverwritePrompt = true,
+                FileTypeChoices = new[]
+                {
+                    new Avalonia.Platform.Storage.FilePickerFileType("HTML") { Patterns = new[] { "*.html" } },
+                },
+            });
+            if (file is null) return;
+            await using var stream = await file.OpenWriteAsync();
+            await using var writer = new System.IO.StreamWriter(stream, new System.Text.UTF8Encoding(false));
+            await writer.WriteAsync(NotesService.ToHtml(note));
+            StatusText.Text = $"Exported 1 note to {file.Name}.";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Could not export: " + ex.Message;
+        }
+    }
+
     private async void ExportList_Click(object? sender, RoutedEventArgs e)
     {
         if (_dirty) SaveCurrent();
@@ -443,6 +479,101 @@ public partial class NotesWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = "Could not open the preview: " + ex.Message;
+        }
+    }
+
+    private void PreviewToggle_Click(object? sender, RoutedEventArgs e)
+    {
+        var showPreview = !PreviewPanel.IsVisible;
+        if (showPreview)
+        {
+            TitlePreview.Text = string.IsNullOrWhiteSpace(TitleBox.Text) ? "(untitled)" : TitleBox.Text.Trim();
+            TagsPreview.Text = string.Join("  ", (TagsBox.Text ?? "").Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries).Select(tag => "#" + tag.TrimStart('#')));
+            RenderBodyPreview(HtmlBox.Text ?? "");
+        }
+        PreviewPanel.IsVisible = showPreview;
+        HtmlBox.IsVisible = !showPreview;
+        EditorControls.IsVisible = !showPreview;
+        PreviewToggleButton.Content = showPreview ? "Edit" : "Preview";
+        if (!showPreview) HtmlBox.Focus();
+    }
+
+    private static readonly Regex PreviewToken = new(@"(<[^>]+>)", RegexOptions.Compiled);
+    private static readonly Regex PreviewTagName = new(@"^</?\s*([a-zA-Z0-9]+)", RegexOptions.Compiled);
+
+    private void RenderBodyPreview(string html)
+    {
+        var inlines = BodyPreview.Inlines;
+        if (inlines is null) return;
+        inlines.Clear();
+        var source = Regex.Replace(NotesService.RenderLists(html), @"<(script|style)\b.*?</\1>", "", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+        var bold = false;
+        var italic = false;
+        var code = false;
+        var headingLevel = 0;
+        var hasTextOnLine = false;
+
+        void AddBreak()
+        {
+            if (!hasTextOnLine) return;
+            inlines.Add(new LineBreak());
+            hasTextOnLine = false;
+        }
+
+        void AddText(string text)
+        {
+            if (text.Length == 0) return;
+            var run = new Run
+            {
+                Text = WebUtility.HtmlDecode(text),
+                FontWeight = bold || headingLevel > 0 ? FontWeight.Bold : FontWeight.Normal,
+                FontStyle = italic ? FontStyle.Italic : FontStyle.Normal,
+                FontSize = headingLevel > 0 ? Math.Max(16, 26 - headingLevel * 2) : 14,
+            };
+            if (code) run.FontFamily = new Avalonia.Media.FontFamily("Consolas");
+            inlines.Add(run);
+            if (!string.IsNullOrWhiteSpace(text)) hasTextOnLine = true;
+        }
+
+        foreach (var token in PreviewToken.Split(source))
+        {
+            if (!token.StartsWith('<'))
+            {
+                AddText(token);
+                continue;
+            }
+
+            var match = PreviewTagName.Match(token);
+            if (!match.Success) continue;
+            var tag = match.Groups[1].Value.ToLowerInvariant();
+            var closing = token.StartsWith("</", StringComparison.Ordinal);
+            if (tag is "b" or "strong") bold = !closing;
+            else if (tag is "i" or "em") italic = !closing;
+            else if (tag is "code" or "pre") code = !closing;
+            else if (tag.Length == 2 && tag[0] == 'h' && tag[1] is >= '1' and <= '6')
+            {
+                if (closing)
+                {
+                    AddBreak();
+                    headingLevel = 0;
+                }
+                else
+                {
+                    AddBreak();
+                    headingLevel = tag[1] - '0';
+                }
+            }
+            else if (tag == "li")
+            {
+                if (closing) AddBreak();
+                else
+                {
+                    AddBreak();
+                    AddText("• ");
+                }
+            }
+            else if (tag is "br" or "p" or "div" or "ul" or "ol" or "blockquote" or "tr")
+                AddBreak();
         }
     }
 }
