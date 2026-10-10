@@ -21,6 +21,7 @@ public static class TimestampService
         ("Day first", "dd/MM/yyyy HH:mm"),
         ("Time only, in brackets", "[{HH:mm}] "),
         ("Long, with weekday", "ddd, dd MMM yyyy HH:mm"),
+        ("Weekday, date and time", "{DAY}, {dd MMM yyyy HH:mm}"),
         ("File-name friendly", "yyyyMMdd_HHmmss"),
         ("ISO 8601", "yyyy-MM-ddTHH:mm:sszzz"),
     };
@@ -33,7 +34,13 @@ public static class TimestampService
         try
         {
             result = Braced.IsMatch(f)
-                ? Braced.Replace(f, m => m.Groups[1].Value.Length == 0 ? "" : when.ToString(m.Groups[1].Value, CultureInfo.InvariantCulture))
+                ? Braced.Replace(f, m =>
+                {
+                    var part = m.Groups[1].Value;
+                    if (part == "DAY")
+                        return when.ToString("ddd", CultureInfo.InvariantCulture).ToUpperInvariant();
+                    return part.Length == 0 ? "" : when.ToString(part, CultureInfo.InvariantCulture);
+                })
                 : when.ToString(f, CultureInfo.InvariantCulture);
             return true;
         }

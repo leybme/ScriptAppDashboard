@@ -52,7 +52,7 @@
             <TextBlock x:Name="BulletPreviewText" FontSize="13" Foreground="Gray"/>
 
             <TextBlock FontSize="12" Foreground="Gray" TextWrapping="Wrap"
-                       Text="yyyy year · MM month · dd day · HH hour (24h) · hh hour (12h) · tt AM/PM · mm minute · ss second · ddd weekday · MMM month name · zzz UTC offset.&#10;Put text around the time with braces: [{HH:mm}] Standup → [09:30] Standup. Only the part inside { } is formatted."/>
+                       Text="yyyy year · MM month · dd day · HH hour (24h) · hh hour (12h) · tt AM/PM · mm minute · ss second · ddd weekday · MMM month name · zzz UTC offset. Use {DAY} for an uppercase weekday (MON, TUE…).&#10;Put text around the time with braces: [{DAY} {HH:mm}] Standup → [MON 09:30] Standup. Only the parts inside { } are formatted."/>
           </StackPanel>
         </ScrollViewer>
       </TabItem>
