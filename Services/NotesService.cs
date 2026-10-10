@@ -59,67 +59,16 @@ public static class NotesService
         });
     }
 
-    private static readonly Regex BulletLine = new(@"^\s*[-*•]\s+(.*)$", RegexOptions.Compiled);
-    private static readonly Regex NumberLine = new(@"^\s*\d+[.)]\s+(.*)$", RegexOptions.Compiled);
-    private static readonly Regex TimedLine = new(@"^\s*◷ (.+?) · (.*)$", RegexOptions.Compiled);
-    private static readonly Regex BlockHtml = new(@"<(p|div|h[1-6]|ul|ol|li|br|table|pre|blockquote)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
-    /// <summary>
-    /// Turns the editor's plain list lines ("• x", "- x", "1. x", "◷ 2026-10-10 14:30 · x") into HTML lists.
-    /// Other lines are left alone when the note already contains block HTML, otherwise they keep their line breaks.
-    /// </summary>
-    public static string RenderLists(string text)
-    {
-        var looksLikeHtml = BlockHtml.IsMatch(text);
-        var sb = new System.Text.StringBuilder();
-        string? openList = null; // the closing tag name of the list that is open
-        string? openKind = null;
-
-        void CloseList()
-        {
-            if (openList is null) return;
-            sb.Append("</").Append(openList).Append('>');
-            openList = openKind = null;
-        }
-
-        void Item(string kind, string tag, string openTag, string content)
-        {
-            if (openKind != kind)
-            {
-                CloseList();
-                sb.Append(openTag);
-                openList = tag;
-                openKind = kind;
-            }
-            sb.Append("<li>").Append(content).Append("</li>");
-        }
-
-        foreach (var line in text.Replace("\r\n", "\n").Split('\n'))
-        {
-            Match m;
-            if ((m = TimedLine.Match(line)).Success)
-                Item("timed", "ul", "<ul class=\"timed\">",
-                    "<span class=\"t\">" + WebUtility.HtmlEncode(m.Groups[1].Value) + "</span> " + m.Groups[2].Value);
-            else if ((m = NumberLine.Match(line)).Success)
-                Item("num", "ol", "<ol>", m.Groups[1].Value);
-            else if ((m = BulletLine.Match(line)).Success)
-                Item("bullet", "ul", "<ul>", m.Groups[1].Value);
-            else
-            {
-                CloseList();
-                sb.Append(line).Append(looksLikeHtml ? "\n" : "<br>\n");
-            }
-        }
-        CloseList();
-        return sb.ToString();
-    }
-
     // ---- Markdown export ----------------------------------------------------
 
     private static readonly RegexOptions Ci = RegexOptions.IgnoreCase | RegexOptions.Singleline;
 
-    /// <summary>Converts a note body (plain list lines and/or simple HTML) to Markdown.</summary>
+    /// <summary>Converts a note body (editor HTML, old plain list lines, or any HTML) to Markdown.</summary>
     public static string HtmlToMarkdown(string html)
+        => NoteDocument.ToMarkdown(NoteDocument.Parse(html), RawHtmlToMarkdown);
+
+    /// <summary>Best-effort Markdown for HTML the editor keeps as source (tables, styled blocks, full documents).</summary>
+    private static string RawHtmlToMarkdown(string html)
     {
         var md = html.Replace("\r\n", "\n");
 
@@ -222,8 +171,10 @@ public static class NotesService
         {
             content = "<!doctype html><html><head><meta charset=\"utf-8\"><title>" + encodedTitle +
               "</title><style>body{font-family:Segoe UI,system-ui,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem;line-height:1.5}" +
-              "h1{border-bottom:1px solid #ccc;padding-bottom:.4em}ul.timed{list-style:none;padding-left:0}ul.timed .t{color:#777;font-variant-numeric:tabular-nums;margin-right:.4em}</style></head><body>" +
-              heading + RenderLists(body) + "</body></html>";
+              "h1{border-bottom:1px solid #ccc;padding-bottom:.4em}ul.timed{list-style:none;padding-left:0}ul.timed .t{color:#777;font-variant-numeric:tabular-nums;margin-right:.4em}" +
+              "blockquote{margin:0;padding-left:1em;border-left:3px solid #ccc;color:#555}pre{background:#f4f4f4;padding:.6em .8em;border-radius:4px;overflow:auto}" +
+              "code{font-family:Consolas,Menlo,monospace}</style></head><body>" +
+              heading + NoteDocument.ToHtml(NoteDocument.Parse(body)) + "</body></html>";
         }
         return content;
     }

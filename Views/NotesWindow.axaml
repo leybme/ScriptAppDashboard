@@ -1,18 +1,44 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="using:ScriptAppDashboard.Views"
         x:Class="ScriptAppDashboard.Views.NotesWindow"
         Title="Notes"
         Width="1040" Height="620"
         MinWidth="760" MinHeight="400"
         Icon="/Assets/icon.png"
         WindowStartupLocation="CenterScreen">
+  <Window.Styles>
+    <!-- title and tags sit on the page like a document heading -->
+    <Style Selector="TextBox.doc">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="2,2"/>
+    </Style>
+    <Style Selector="TextBox.doc /template/ Border#PART_BorderElement">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+    <Style Selector="TextBox.doc:pointerover /template/ Border#PART_BorderElement">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+    <Style Selector="TextBox.doc:focus /template/ Border#PART_BorderElement">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+    <!-- toolbar buttons don't take focus, so the caret and selection stay in the note -->
+    <Style Selector="WrapPanel#FormatBar > Button">
+      <Setter Property="Margin" Value="0,0,4,4"/>
+      <Setter Property="Focusable" Value="False"/>
+    </Style>
+  </Window.Styles>
   <Grid ColumnDefinitions="260,*" Margin="16">
     <DockPanel Grid.Column="0" Margin="0,0,12,0">
       <Button DockPanel.Dock="Top" Content="New note" Classes="accent" HorizontalAlignment="Stretch"
               HorizontalContentAlignment="Center" Click="New_Click"/>
       <TextBox x:Name="SearchBox" DockPanel.Dock="Top" Margin="0,8" Watermark="Search title, tags, text…"/>
       <TextBlock DockPanel.Dock="Bottom" Margin="0,2,0,0" FontSize="11" Foreground="Gray" TextWrapping="Wrap"
-                 Text="Ctrl+S save · Ctrl+N new · Ctrl+F search"/>
+                 Text="Ctrl+S save · Ctrl+N new · Ctrl+F search · Ctrl+B / I / K bold, italic, link"/>
       <TextBlock x:Name="CountText" DockPanel.Dock="Bottom" Margin="0,6,0,0" FontSize="12" Foreground="Gray"/>
       <Panel>
         <ListBox x:Name="NoteList" SelectionChanged="NoteList_Changed"/>
@@ -22,27 +48,24 @@
     </DockPanel>
 
     <DockPanel Grid.Column="1">
-      <StackPanel x:Name="EditorControls" DockPanel.Dock="Top" IsVisible="False" Spacing="6">
-        <TextBox x:Name="TitleBox" Watermark="Title"/>
-        <TextBox x:Name="TagsBox" Watermark="Tags (space or comma separated)"/>
-        <WrapPanel>
-          <WrapPanel.Styles>
-            <Style Selector="WrapPanel > Button">
-              <Setter Property="Margin" Value="0,0,4,4"/>
-            </Style>
-          </WrapPanel.Styles>
-            <Button Content="B" FontWeight="Bold" MinWidth="32" ToolTip.Tip="Bold" Click="Bold_Click"/>
-            <Button Content="I" FontStyle="Italic" MinWidth="32" ToolTip.Tip="Italic" Click="Italic_Click"/>
-            <Button Content="H" FontWeight="Bold" MinWidth="32" ToolTip.Tip="Heading" Click="Heading_Click"/>
-            <Button Content="• Bullets" ToolTip.Tip="Bulleted list — Enter adds the next bullet, Enter on an empty bullet ends the list" Click="Bullets_Click"/>
-            <Button Content="1. Numbers" ToolTip.Tip="Numbered list — Enter adds the next number" Click="Numbers_Click"/>
-            <Button Content="◷ Timed" ToolTip.Tip="Time bullets — every new item (Enter) is stamped with the current date and time" Click="Timed_Click"/>
-            <Button Content="Link" ToolTip.Tip="Hyperlink" Click="Link_Click"/>
-            <Button Content="&lt;/&gt;" ToolTip.Tip="Code" Click="Code_Click"/>
-            <Button x:Name="TimeButton" Content="🕒 Time" ToolTip.Tip="Insert the current time (format in Settings)"
-                    Click="Time_Click"/>
-        </WrapPanel>
-      </StackPanel>
+      <WrapPanel x:Name="FormatBar" DockPanel.Dock="Top">
+        <Button Content="B" FontWeight="Bold" MinWidth="32" AutomationProperties.Name="Bold"
+                ToolTip.Tip="Bold (Ctrl+B)" Click="Bold_Click"/>
+        <Button Content="I" FontStyle="Italic" MinWidth="32" AutomationProperties.Name="Italic"
+                ToolTip.Tip="Italic (Ctrl+I)" Click="Italic_Click"/>
+        <Button Content="&lt;/&gt;" AutomationProperties.Name="Code"
+                ToolTip.Tip="Code — selected text becomes inline code, otherwise the line becomes a code block (or type ```)" Click="Code_Click"/>
+        <Button Content="Link" ToolTip.Tip="Link (Ctrl+K) — Ctrl+click a link to open it" Click="Link_Click"/>
+        <Button Content="H" FontWeight="Bold" MinWidth="32" AutomationProperties.Name="Heading"
+                ToolTip.Tip="Heading — click again for a smaller one (or type #, ## or ### and a space)" Click="Heading_Click"/>
+        <Button Content="❝" MinWidth="32" AutomationProperties.Name="Quote"
+                ToolTip.Tip="Quote (or type &gt; and a space)" Click="Quote_Click"/>
+        <Button Content="• Bullets" ToolTip.Tip="Bulleted list (or type - and a space) — Tab indents, Enter on an empty item ends the list" Click="Bullets_Click"/>
+        <Button Content="1. Numbers" ToolTip.Tip="Numbered list (or type 1. and a space)" Click="Numbers_Click"/>
+        <Button Content="◷ Timed" ToolTip.Tip="Time bullets — every new item (Enter) is stamped with the current date and time" Click="Timed_Click"/>
+        <Button x:Name="TimeButton" Content="🕒 Time" ToolTip.Tip="Insert the current time (format in Settings)"
+                Click="Time_Click"/>
+      </WrapPanel>
       <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
           <Button Content="Export ▾" ToolTip.Tip="Export this note as Markdown or HTML">
@@ -55,26 +78,25 @@
               </MenuFlyout>
             </Button.Flyout>
           </Button>
-          <Button x:Name="PreviewToggleButton" Content="Show code" Click="PreviewToggle_Click"/>
+          <Button x:Name="CodeToggleButton" Content="Edit HTML" Click="CodeToggle_Click"
+                  ToolTip.Tip="Switch between the visual editor and the note's HTML source"/>
           <Button Content="Preview in browser" Click="Preview_Click"/>
           <Button Content="Delete" Click="Delete_Click"/>
           <Button Content="Save" Classes="accent" Click="Save_Click"/>
         </StackPanel>
         <TextBlock x:Name="StatusText" VerticalAlignment="Center" FontSize="12" Foreground="Gray"/>
       </DockPanel>
-      <Grid ColumnDefinitions="*,*" Margin="0,4,0,0">
-        <TextBox x:Name="HtmlBox" Grid.Column="0" IsVisible="False" AcceptsReturn="True" AcceptsTab="True"
+      <TextBox x:Name="TitleBox" DockPanel.Dock="Top" Classes="doc" Margin="0,6,0,0" Watermark="Title"
+               FontSize="24" FontWeight="SemiBold"/>
+      <TextBox x:Name="TagsBox" DockPanel.Dock="Top" Classes="doc" Foreground="Gray"
+               Watermark="#tags (space or comma separated)"/>
+      <Border DockPanel.Dock="Top" Height="1" Background="#44888888" Margin="0,6"/>
+      <Panel>
+        <views:NoteEditor x:Name="Editor"/>
+        <TextBox x:Name="HtmlBox" IsVisible="False" AcceptsReturn="True" AcceptsTab="True"
                  TextWrapping="Wrap" FontFamily="Consolas,Menlo,monospace"
                  Watermark="&lt;h3&gt;Idea&lt;/h3&gt;&lt;p&gt;Remember to …&lt;/p&gt;"/>
-        <ScrollViewer x:Name="PreviewPanel" Grid.Column="0" Grid.ColumnSpan="2" Padding="16">
-          <StackPanel Spacing="10">
-            <TextBlock x:Name="TitlePreview" FontSize="24" FontWeight="Bold" TextWrapping="Wrap"/>
-            <TextBlock x:Name="TagsPreview" Foreground="Gray" TextWrapping="Wrap"/>
-            <Border Height="1" Background="#44888888"/>
-            <TextBlock x:Name="BodyPreview" FontSize="14" TextWrapping="Wrap"/>
-          </StackPanel>
-        </ScrollViewer>
-      </Grid>
+      </Panel>
     </DockPanel>
   </Grid>
 </Window>

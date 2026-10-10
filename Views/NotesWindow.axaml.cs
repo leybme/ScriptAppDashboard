@@ -2,10 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Net;
 using System.Text.RegularExpressions;
 using Avalonia.Controls;
-using Avalonia.Controls.Documents;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -20,18 +18,24 @@ public partial class NotesWindow : Window
     private NoteItem? _current;
     private bool _dirty;
     private bool _suppress;
+    private bool _codeView; // editing the HTML source instead of the visual editor
 
     public NotesWindow()
     {
         InitializeComponent();
         _baseline = Snapshot();
         SearchBox.TextChanged += (_, _) => RefreshList(_current?.Id);
-        TitleBox.TextChanged += MarkDirty;
-        TagsBox.TextChanged += MarkDirty;
-        HtmlBox.TextChanged += MarkDirty;
-        TitleBox.TextChanged += (_, _) => RefreshPreview();
-        TagsBox.TextChanged += (_, _) => RefreshPreview();
-        HtmlBox.TextChanged += (_, _) => RefreshPreview();
+        TitleBox.TextChanged += (_, _) => UpdateDirty();
+        TagsBox.TextChanged += (_, _) => UpdateDirty();
+        HtmlBox.TextChanged += (_, _) => UpdateDirty();
+        Editor.Changed += UpdateDirty;
+        TitleBox.KeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Enter) return;
+            e.Handled = true;
+            if (_codeView) HtmlBox.Focus();
+            else Editor.FocusStart();
+        };
         Closing += (_, _) => { if (_dirty) SaveCurrent(); };
         HtmlBox.AddHandler(KeyDownEvent, HtmlBox_KeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         ApplyTimeButton();
@@ -39,10 +43,9 @@ public partial class NotesWindow : Window
         app.SettingsChanged += ApplyTimeButton;
         Closed += (_, _) => app.SettingsChanged -= ApplyTimeButton;
         RefreshList(null);
-        RefreshPreview();
     }
 
-    private void MarkDirty(object? sender, TextChangedEventArgs e)
+    private void UpdateDirty()
     {
         if (_suppress) return;
         // compare with what was last loaded/saved: TextChanged can also fire late for programmatic edits
@@ -54,7 +57,10 @@ public partial class NotesWindow : Window
 
     private string _baseline = "";
 
-    private string Snapshot() => $"{TitleBox.Text}\u0001{TagsBox.Text}\u0001{HtmlBox.Text}";
+    private string Snapshot() => $"{TitleBox.Text}\u0001{TagsBox.Text}\u0001{CurrentHtml()}";
+
+    /// <summary>The note body as shown: the visual editor's HTML, or the source being edited.</summary>
+    private string CurrentHtml() => _codeView ? HtmlBox.Text ?? "" : Editor.ToHtml();
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
@@ -65,14 +71,15 @@ public partial class NotesWindow : Window
                 case Key.S: SaveCurrent(); e.Handled = true; break;
                 case Key.N: NewNote(); e.Handled = true; break;
                 case Key.F: SearchBox.Focus(); SearchBox.SelectAll(); e.Handled = true; break;
-                case Key.B: Wrap("<b>", "</b>", "bold"); e.Handled = true; break;
-                case Key.I: Wrap("<i>", "</i>", "italic"); e.Handled = true; break;
+                case Key.B: Bold_Click(null, e); e.Handled = true; break;
+                case Key.I: Italic_Click(null, e); e.Handled = true; break;
+                case Key.K: Link_Click(null, e); e.Handled = true; break;
             }
         }
         base.OnKeyDown(e);
     }
 
-    // ---- formatting toolbar: wraps the selection in tags, or inserts a placeholder ----
+    // ---- formatting toolbar: acts on the visual editor, or wraps the HTML source in tags ----
 
     private void Wrap(string open, string close, string placeholder)
     {
@@ -92,6 +99,11 @@ public partial class NotesWindow : Window
     private void Time_Click(object? sender, RoutedEventArgs e)
     {
         var stamp = TimestampService.Now(((App)Avalonia.Application.Current!).Config.TimestampFormat);
+        if (!_codeView)
+        {
+            Editor.InsertText(stamp);
+            return;
+        }
         var text = HtmlBox.Text ?? "";
         var start = Math.Clamp(Math.Min(HtmlBox.SelectionStart, HtmlBox.SelectionEnd), 0, text.Length);
         var end = Math.Clamp(Math.Max(HtmlBox.SelectionStart, HtmlBox.SelectionEnd), start, text.Length);
@@ -103,11 +115,41 @@ public partial class NotesWindow : Window
     private void ApplyTimeButton()
         => TimeButton.IsVisible = ((App)Avalonia.Application.Current!).Config.TimestampButtonEnabled;
 
-    private void Bold_Click(object? sender, RoutedEventArgs e) => Wrap("<b>", "</b>", "bold");
-    private void Italic_Click(object? sender, RoutedEventArgs e) => Wrap("<i>", "</i>", "italic");
-    private void Heading_Click(object? sender, RoutedEventArgs e) => Wrap("<h3>", "</h3>", "Heading");
-    private void Code_Click(object? sender, RoutedEventArgs e) => Wrap("<code>", "</code>", "code");
-    private void Link_Click(object? sender, RoutedEventArgs e) => Wrap("<a href=\"https://\">", "</a>", "link text");
+    private void Bold_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_codeView) Wrap("<b>", "</b>", "bold");
+        else Editor.ToggleInline("**", "bold");
+    }
+
+    private void Italic_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_codeView) Wrap("<i>", "</i>", "italic");
+        else Editor.ToggleInline("*", "italic");
+    }
+
+    private void Heading_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_codeView) Wrap("<h3>", "</h3>", "Heading");
+        else Editor.CycleHeading();
+    }
+
+    private void Quote_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_codeView) Wrap("<blockquote>", "</blockquote>", "quote");
+        else Editor.ToggleBlock(BlockKind.Quote);
+    }
+
+    private void Code_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_codeView) Wrap("<code>", "</code>", "code");
+        else Editor.CodeButton();
+    }
+
+    private void Link_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_codeView) Wrap("<a href=\"https://\">", "</a>", "link text");
+        else Editor.InsertLink();
+    }
 
     // ---- list lines: "• x", "1. x", "◷ 2026-10-10 14:30 · x"; Enter continues them ----
 
@@ -130,9 +172,17 @@ public partial class NotesWindow : Window
     private void Numbers_Click(object? sender, RoutedEventArgs e) => ApplyList("num");
     private void Timed_Click(object? sender, RoutedEventArgs e) => ApplyList("timed");
 
-    /// <summary>Prefixes every selected line (or the caret's line) with the list marker, replacing any existing marker.</summary>
+    /// <summary>
+    /// Visual editor: toggles the current block to that list. HTML source: prefixes every selected line
+    /// (or the caret's line) with the list marker, replacing any existing marker.
+    /// </summary>
     private void ApplyList(string kind)
     {
+        if (!_codeView)
+        {
+            Editor.ToggleBlock(kind switch { "num" => BlockKind.Number, "timed" => BlockKind.Timed, _ => BlockKind.Bullet });
+            return;
+        }
         var text = HtmlBox.Text ?? "";
         var selStart = Math.Clamp(Math.Min(HtmlBox.SelectionStart, HtmlBox.SelectionEnd), 0, text.Length);
         var selEnd = Math.Clamp(Math.Max(HtmlBox.SelectionStart, HtmlBox.SelectionEnd), selStart, text.Length);
@@ -285,7 +335,8 @@ public partial class NotesWindow : Window
         _suppress = true;
         TitleBox.Text = note?.Title ?? "";
         TagsBox.Text = note?.Tags ?? "";
-        HtmlBox.Text = note?.Html ?? "";
+        if (_codeView) HtmlBox.Text = note?.Html ?? "";
+        else Editor.Load(note?.Html ?? "");
         _suppress = false;
         _baseline = Snapshot();
         _dirty = false;
@@ -296,7 +347,7 @@ public partial class NotesWindow : Window
 
     private void SaveCurrent(bool refresh = true)
     {
-        var html = HtmlBox.Text ?? "";
+        var html = CurrentHtml();
         var title = (TitleBox.Text ?? "").Trim();
         if (title.Length == 0 && html.Trim().Length == 0 && _current is null)
         {
@@ -370,7 +421,7 @@ public partial class NotesWindow : Window
         Id = _current?.Id ?? Guid.NewGuid(),
         Title = (TitleBox.Text ?? "").Trim(),
         Tags = (TagsBox.Text ?? "").Trim(),
-        Html = HtmlBox.Text ?? "",
+        Html = CurrentHtml(),
         Created = _current?.Created ?? DateTime.Now,
         Updated = _current?.Updated ?? DateTime.Now,
     };
@@ -476,7 +527,7 @@ public partial class NotesWindow : Window
             {
                 Id = _current?.Id ?? Guid.NewGuid(),
                 Title = TitleBox.Text ?? "",
-                Html = HtmlBox.Text ?? "",
+                Html = CurrentHtml(),
             };
             Process.Start(new ProcessStartInfo { FileName = NotesService.WritePreview(preview), UseShellExecute = true });
         }
@@ -486,101 +537,20 @@ public partial class NotesWindow : Window
         }
     }
 
-    private void PreviewToggle_Click(object? sender, RoutedEventArgs e)
+    private void CodeToggle_Click(object? sender, RoutedEventArgs e)
     {
-        var showCode = !HtmlBox.IsVisible;
-        HtmlBox.IsVisible = showCode;
-        EditorControls.IsVisible = showCode;
-        Grid.SetColumn(PreviewPanel, showCode ? 1 : 0);
-        Grid.SetColumnSpan(PreviewPanel, showCode ? 1 : 2);
-        PreviewToggleButton.Content = showCode ? "Hide code" : "Show code";
-        if (showCode) HtmlBox.Focus();
-    }
-
-    private void RefreshPreview()
-    {
-        if (TitlePreview is null || TagsPreview is null || BodyPreview is null) return;
-        TitlePreview.Text = string.IsNullOrWhiteSpace(TitleBox.Text) ? "(untitled)" : TitleBox.Text.Trim();
-        TagsPreview.Text = string.Join("  ", (TagsBox.Text ?? "").Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries).Select(tag => "#" + tag.TrimStart('#')));
-        RenderBodyPreview(HtmlBox.Text ?? "");
-    }
-
-    private static readonly Regex PreviewToken = new(@"(<[^>]+>)", RegexOptions.Compiled);
-    private static readonly Regex PreviewTagName = new(@"^</?\s*([a-zA-Z0-9]+)", RegexOptions.Compiled);
-
-    private void RenderBodyPreview(string html)
-    {
-        var inlines = BodyPreview.Inlines;
-        if (inlines is null) return;
-        inlines.Clear();
-        var source = Regex.Replace(NotesService.RenderLists(html), @"<(script|style)\b.*?</\1>", "", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-        var bold = false;
-        var italic = false;
-        var code = false;
-        var headingLevel = 0;
-        var hasTextOnLine = false;
-
-        void AddBreak()
-        {
-            if (!hasTextOnLine) return;
-            inlines.Add(new LineBreak());
-            hasTextOnLine = false;
-        }
-
-        void AddText(string text)
-        {
-            if (text.Length == 0) return;
-            var run = new Run
-            {
-                Text = WebUtility.HtmlDecode(text),
-                FontWeight = bold || headingLevel > 0 ? FontWeight.Bold : FontWeight.Normal,
-                FontStyle = italic ? FontStyle.Italic : FontStyle.Normal,
-                FontSize = headingLevel > 0 ? Math.Max(16, 26 - headingLevel * 2) : 14,
-            };
-            if (code) run.FontFamily = new Avalonia.Media.FontFamily("Consolas");
-            inlines.Add(run);
-            if (!string.IsNullOrWhiteSpace(text)) hasTextOnLine = true;
-        }
-
-        foreach (var token in PreviewToken.Split(source))
-        {
-            if (!token.StartsWith('<'))
-            {
-                AddText(token);
-                continue;
-            }
-
-            var match = PreviewTagName.Match(token);
-            if (!match.Success) continue;
-            var tag = match.Groups[1].Value.ToLowerInvariant();
-            var closing = token.StartsWith("</", StringComparison.Ordinal);
-            if (tag is "b" or "strong") bold = !closing;
-            else if (tag is "i" or "em") italic = !closing;
-            else if (tag is "code" or "pre") code = !closing;
-            else if (tag.Length == 2 && tag[0] == 'h' && tag[1] is >= '1' and <= '6')
-            {
-                if (closing)
-                {
-                    AddBreak();
-                    headingLevel = 0;
-                }
-                else
-                {
-                    AddBreak();
-                    headingLevel = tag[1] - '0';
-                }
-            }
-            else if (tag == "li")
-            {
-                if (closing) AddBreak();
-                else
-                {
-                    AddBreak();
-                    AddText("• ");
-                }
-            }
-            else if (tag is "br" or "p" or "div" or "ul" or "ol" or "blockquote" or "tr")
-                AddBreak();
-        }
+        var wasDirty = _dirty;
+        _suppress = true;
+        if (_codeView) Editor.Load(HtmlBox.Text ?? "");
+        else HtmlBox.Text = Editor.ToHtml();
+        _suppress = false;
+        _codeView = !_codeView;
+        HtmlBox.IsVisible = _codeView;
+        Editor.IsVisible = !_codeView;
+        CodeToggleButton.Content = _codeView ? "Visual editor" : "Edit HTML";
+        // switching views can re-format the HTML; that alone is not an edit
+        if (!wasDirty) _baseline = Snapshot();
+        if (_codeView) HtmlBox.Focus();
+        else Editor.FocusStart();
     }
 }

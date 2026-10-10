@@ -1,0 +1,40 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="ScriptAppDashboard.Views.NoteEditor">
+  <UserControl.Styles>
+    <!-- block text boxes look like the rendered text around them: no border, background or padding -->
+    <Style Selector="TextBox.blk">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="MinHeight" Value="0"/>
+      <Setter Property="MinWidth" Value="0"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+      <Setter Property="AcceptsReturn" Value="True"/>
+      <Setter Property="VerticalContentAlignment" Value="Top"/>
+    </Style>
+    <Style Selector="TextBox.blk /template/ Border#PART_BorderElement">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+    <Style Selector="TextBox.blk:pointerover /template/ Border#PART_BorderElement">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+    <Style Selector="TextBox.blk:focus /template/ Border#PART_BorderElement">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+    <Style Selector="TextBox.stamp">
+      <Setter Property="AcceptsReturn" Value="False"/>
+      <Setter Property="TextWrapping" Value="NoWrap"/>
+    </Style>
+  </UserControl.Styles>
+  <ScrollViewer x:Name="Scroller" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Margin="2,4,16,4">
+      <StackPanel x:Name="BlockHost"/>
+      <!-- clicking below the last block continues the note there -->
+      <Border x:Name="Filler" MinHeight="160" Background="Transparent" Cursor="Ibeam"/>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

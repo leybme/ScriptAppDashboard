@@ -1,0 +1,862 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using Avalonia;
+using Avalonia.Automation;
+using Avalonia.Controls;
+using Avalonia.Controls.Documents;
+using Avalonia.Controls.Presenters;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
+using ScriptAppDashboard.Services;
+
+namespace ScriptAppDashboard.Views;
+
+/// <summary>
+/// Visual (WYSIWYG) note editor, one row per block. The block being edited shows its inline markup
+/// (**bold**, *italic*, `code`, [link](url)) in a TextBox; every other block is rendered with real formatting.
+/// Enter, Backspace, Delete and the arrow keys move between blocks like a word processor.
+/// </summary>
+public partial class NoteEditor : UserControl
+{
+    private sealed class Row
+    {
+        public required NoteBlock Block;
+        public required Border Frame;
+        public required Panel MarkerHost;
+        public required TextBlock Marker;
+        public required TextBox Stamp;
+        public required TextBlock View;
+        public required TextBox Edit;
+        public required Border Rule;
+        public List<InlineSpan> Spans = new();
+        public bool Editing;
+    }
+
+    private readonly List<Row> _rows = new();
+    private Row? _active;
+
+    private static readonly IBrush Muted = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88));
+    private static readonly IBrush CodeBack = new SolidColorBrush(Color.FromArgb(0x26, 0x80, 0x80, 0x80));
+    private static readonly IBrush Line = new SolidColorBrush(Color.FromArgb(0x90, 0x80, 0x80, 0x80));
+    private static readonly IBrush LinkBrush = new SolidColorBrush(Color.Parse("#3B82F6"));
+    private static readonly FontFamily Mono = new("Consolas,Menlo,monospace");
+    private static readonly string[] Bullets = { "•", "◦", "▪" };
+    private const double IndentWidth = 22;
+
+    /// <summary>Raised after every edit (text or structure).</summary>
+    public event Action? Changed;
+
+    public string Placeholder { get; set; } = "Start writing…  Type - for a list, # for a heading, > for a quote, ``` for code";
+
+    public NoteEditor()
+    {
+        InitializeComponent();
+        Filler.PointerPressed += Filler_PointerPressed;
+        Load("");
+    }
+
+    // ---- public API -----------------------------------------------------------
+
+    /// <summary>Shows a note body. Does not raise <see cref="Changed"/>.</summary>
+    public void Load(string html)
+    {
+        _rows.Clear();
+        BlockHost.Children.Clear();
+        _active = null;
+        var blocks = NoteDocument.Parse(html);
+        if (blocks.Count == 0) blocks.Add(new NoteBlock());
+        foreach (var block in blocks) AddRow(_rows.Count, block);
+        RefreshLists();
+        Scroller.Offset = default;
+    }
+
+    public string ToHtml() => NoteDocument.ToHtml(_rows.Select(r => r.Block).ToList());
+
+    /// <summary>Puts the caret at the start of the first block.</summary>
+    public void FocusStart()
+    {
+        var row = _rows.FirstOrDefault(r => r.Block.Kind != BlockKind.Divider);
+        if (row is not null) FocusRow(row, 0);
+    }
+
+    /// <summary>Wraps the selection in an emphasis marker (or removes it), or inserts a placeholder.</summary>
+    public void ToggleInline(string marker, string placeholder)
+    {
+        var row = ActiveRow();
+        if (row is null || !row.Block.HasMarkup) return;
+        var text = row.Edit.Text ?? "";
+        var (s, e) = Selection(row.Edit);
+        var ch = marker[0];
+        int before = 0, after = 0;
+        while (s - before > 0 && text[s - before - 1] == ch) before++;
+        while (e + after < text.Length && text[e + after] == ch) after++;
+        // "**" is on when 2 or 3 stars surround the selection, "*" when 1 or 3 do
+        var on = marker.Length == 2 ? before >= 2 && after >= 2 : before % 2 == 1 && after % 2 == 1;
+        if (s < e && on)
+        {
+            SetText(row, text[..(s - marker.Length)] + text[s..e] + text[(e + marker.Length)..]);
+            FocusRow(row, s - marker.Length, e - marker.Length);
+        }
+        else
+        {
+            var inner = s < e ? text[s..e] : placeholder;
+            SetText(row, text[..s] + marker + inner + marker + text[e..]);
+            FocusRow(row, s + marker.Length, s + marker.Length + inner.Length);
+        }
+        Changed?.Invoke();
+    }
+
+    /// <summary>Turns the selection into a link and selects the address (or inserts a sample link).</summary>
+    public void InsertLink()
+    {
+        var row = ActiveRow();
+        if (row is null || !row.Block.HasMarkup) return;
+        var text = row.Edit.Text ?? "";
+        var (s, e) = Selection(row.Edit);
+        const string url = "https://";
+        if (s < e)
+        {
+            var label = text[s..e];
+            SetText(row, text[..s] + "[" + label + "](" + url + ")" + text[e..]);
+            var at = s + label.Length + 3;
+            FocusRow(row, at, at + url.Length);
+        }
+        else
+        {
+            const string label = "link text";
+            SetText(row, text[..s] + "[" + label + "](" + url + ")" + text[e..]);
+            FocusRow(row, s + 1, s + 1 + label.Length);
+        }
+        Changed?.Invoke();
+    }
+
+    /// <summary>Changes the current block to <paramref name="kind"/>, or back to a paragraph if it already is one.</summary>
+    public void ToggleBlock(BlockKind kind)
+    {
+        var row = ActiveRow();
+        if (row is null || row.Block.Kind == BlockKind.Raw) return;
+        ChangeKind(row, row.Block.Kind == kind ? BlockKind.Paragraph : kind);
+    }
+
+    /// <summary>Paragraph → Heading 1 → Heading 2 → Heading 3 → paragraph.</summary>
+    public void CycleHeading()
+    {
+        var row = ActiveRow();
+        if (row is null || row.Block.Kind == BlockKind.Raw) return;
+        var b = row.Block;
+        if (b.Kind != BlockKind.Heading) ChangeKind(row, BlockKind.Heading, 1);
+        else if (b.Level < 3) ChangeKind(row, BlockKind.Heading, b.Level + 1);
+        else ChangeKind(row, BlockKind.Paragraph);
+    }
+
+    /// <summary>Inline code for a selection; otherwise toggles a code block.</summary>
+    public void CodeButton()
+    {
+        var row = ActiveRow();
+        if (row is null) return;
+        var (s, e) = Selection(row.Edit);
+        if (s < e && row.Block.HasMarkup) ToggleInline("`", "code");
+        else ToggleBlock(BlockKind.Code);
+    }
+
+    /// <summary>Types <paramref name="text"/> at the caret, replacing any selection.</summary>
+    public void InsertText(string text)
+    {
+        var row = ActiveRow();
+        if (row is null) return;
+        var current = row.Edit.Text ?? "";
+        var (s, e) = Selection(row.Edit);
+        SetText(row, current[..s] + text + current[e..]);
+        FocusRow(row, s + text.Length);
+        Changed?.Invoke();
+    }
+
+    // ---- rows -------------------------------------------------------------------
+
+    private Row? ActiveRow()
+    {
+        if (_active is not null && _rows.Contains(_active) && _active.Block.Kind != BlockKind.Divider) return _active;
+        return _rows.FirstOrDefault(r => r.Block.Kind != BlockKind.Divider);
+    }
+
+    private Row CreateRow(NoteBlock block)
+    {
+        var marker = new TextBlock
+        {
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        var stamp = new TextBox
+        {
+            Classes = { "blk", "stamp" },
+            FontSize = 12,
+            Foreground = Muted,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 2, 10, 0),
+            Watermark = "time",
+            Text = block.Stamp,
+        };
+        AutomationProperties.SetName(stamp, "Time stamp");
+        var markerHost = new Panel { Children = { marker, stamp } };
+        var view = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Background = Brushes.Transparent,
+            Cursor = new Cursor(StandardCursorType.Ibeam),
+        };
+        var edit = new TextBox { Classes = { "blk" }, Text = block.Text };
+        var rule = new Border { Height = 1, Background = Line, Margin = new Thickness(0, 8), IsVisible = false };
+        var content = new Panel { Children = { view, edit, rule } };
+        Grid.SetColumn(content, 1);
+        var frame = new Border
+        {
+            Child = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), Children = { markerHost, content } },
+        };
+
+        var row = new Row
+        {
+            Block = block, Frame = frame, MarkerHost = markerHost, Marker = marker, Stamp = stamp,
+            View = view, Edit = edit, Rule = rule,
+        };
+        edit.AddHandler(KeyDownEvent, (_, e) => Edit_KeyDown(row, e), RoutingStrategies.Tunnel);
+        edit.TextChanged += (_, _) => Edit_TextChanged(row);
+        edit.GotFocus += (_, _) =>
+        {
+            _active = row;
+            row.Editing = true;
+        };
+        edit.LostFocus += (_, _) => EndEdit(row);
+        edit.PastingFromClipboard += (_, e) => Edit_Paste(row, e);
+        view.PointerPressed += (_, e) => View_PointerPressed(row, e);
+        stamp.TextChanged += (_, _) =>
+        {
+            var value = stamp.Text ?? "";
+            if (value == row.Block.Stamp) return;
+            row.Block.Stamp = value;
+            Changed?.Invoke();
+        };
+        return row;
+    }
+
+    private Row AddRow(int index, NoteBlock block)
+    {
+        var row = CreateRow(block);
+        _rows.Insert(index, row);
+        BlockHost.Children.Insert(index, row.Frame);
+        ApplyKind(row);
+        return row;
+    }
+
+    private void RemoveRow(Row row)
+    {
+        _rows.Remove(row);
+        BlockHost.Children.Remove(row.Frame);
+        if (_active == row) _active = null;
+        if (_rows.Count == 0) AddRow(0, new NoteBlock());
+    }
+
+    private static string KindName(NoteBlock b) => b.Kind switch
+    {
+        BlockKind.Heading => $"Heading {b.Level}",
+        BlockKind.Bullet => "Bullet item",
+        BlockKind.Number => "Numbered item",
+        BlockKind.Timed => "Time bullet",
+        BlockKind.Quote => "Quote",
+        BlockKind.Code => "Code block",
+        BlockKind.Raw => "HTML block",
+        BlockKind.Divider => "Divider",
+        _ => "Paragraph",
+    };
+
+    /// <summary>Styles a row for its block kind (font, frame, marker) without rebuilding it, so focus and undo survive.</summary>
+    private void ApplyKind(Row row)
+    {
+        var b = row.Block;
+        var heading = b.Kind == BlockKind.Heading;
+        var mono = b.Kind is BlockKind.Code or BlockKind.Raw;
+        double size = mono ? 13 : heading ? b.Level switch { 1 => 24, 2 => 20, 3 => 17, _ => 15 } : 14;
+
+        row.View.FontSize = row.Edit.FontSize = size;
+        row.View.FontWeight = row.Edit.FontWeight = heading ? FontWeight.SemiBold : FontWeight.Normal;
+        row.View.FontStyle = row.Edit.FontStyle = b.Kind == BlockKind.Quote ? FontStyle.Italic : FontStyle.Normal;
+        row.View.MinHeight = row.Edit.MinHeight = Math.Ceiling(size * 1.35);
+        if (mono) row.Edit.FontFamily = Mono;
+        else row.Edit.ClearValue(TextBox.FontFamilyProperty);
+        row.Edit.AcceptsTab = mono;
+        row.Edit.TextWrapping = mono ? TextWrapping.NoWrap : TextWrapping.Wrap;
+        if (b.Kind == BlockKind.Raw) row.Edit.Foreground = Muted;
+        else row.Edit.ClearValue(TextBox.ForegroundProperty);
+        AutomationProperties.SetName(row.Edit, KindName(b));
+
+        var f = row.Frame;
+        f.ClearValue(Border.BackgroundProperty);
+        f.ClearValue(Border.BorderBrushProperty);
+        f.BorderThickness = default;
+        f.CornerRadius = default;
+        f.Padding = default;
+        switch (b.Kind)
+        {
+            case BlockKind.Heading:
+                f.Margin = new Thickness(0, b.Level <= 1 ? 14 : 10, 0, 2);
+                break;
+            case BlockKind.Code:
+                f.Margin = new Thickness(0, 4);
+                f.Padding = new Thickness(10, 8);
+                f.Background = CodeBack;
+                f.CornerRadius = new CornerRadius(4);
+                break;
+            case BlockKind.Raw:
+                f.Margin = new Thickness(0, 4);
+                f.Padding = new Thickness(8, 6);
+                f.BorderBrush = Line;
+                f.BorderThickness = new Thickness(1);
+                f.CornerRadius = new CornerRadius(4);
+                break;
+            case BlockKind.Quote:
+                f.Margin = new Thickness(0, 1);
+                f.Padding = new Thickness(12, 2, 0, 2);
+                f.BorderBrush = Line;
+                f.BorderThickness = new Thickness(3, 0, 0, 0);
+                break;
+            default:
+                f.Margin = new Thickness(0, b.IsList ? 1 : 3);
+                break;
+        }
+
+        row.MarkerHost.IsVisible = b.IsList || b.Kind == BlockKind.Raw;
+        row.MarkerHost.MinWidth = b.Kind is BlockKind.Bullet or BlockKind.Number ? IndentWidth + 4 : 0;
+        row.Marker.IsVisible = b.Kind != BlockKind.Timed;
+        row.Stamp.IsVisible = b.Kind == BlockKind.Timed;
+        row.Marker.FontSize = b.Kind == BlockKind.Raw ? 10 : 14;
+        if (b.Kind == BlockKind.Raw)
+        {
+            row.Marker.Text = "HTML";
+            row.Marker.Foreground = Muted;
+        }
+
+        var divider = b.Kind == BlockKind.Divider;
+        row.Rule.IsVisible = divider;
+        if (divider)
+        {
+            row.View.IsVisible = row.Edit.IsVisible = false;
+        }
+        else if (!b.HasMarkup)
+        {
+            row.View.IsVisible = false;
+            row.Edit.IsVisible = true;
+        }
+        else
+        {
+            row.Edit.IsVisible = row.Editing;
+            row.View.IsVisible = !row.Editing;
+            Render(row);
+        }
+    }
+
+    /// <summary>Numbers, bullet glyphs and indents (they depend on the neighbouring blocks).</summary>
+    private void RefreshLists()
+    {
+        var (numbers, depths) = NoteDocument.ListInfo(_rows.Select(r => r.Block).ToList());
+        for (var i = 0; i < _rows.Count; i++)
+        {
+            var row = _rows[i];
+            var b = row.Block;
+            if (!b.IsList) continue;
+            b.Indent = depths[i];
+            row.MarkerHost.Margin = new Thickness(depths[i] * IndentWidth, 0, 0, 0);
+            row.Marker.Text = b.Kind == BlockKind.Number ? numbers[i] + "." : Bullets[depths[i] % Bullets.Length];
+        }
+        var only = _rows.Count == 1 ? _rows[0] : null;
+        foreach (var row in _rows) row.Edit.Watermark = row == only && row.Block.Kind == BlockKind.Paragraph ? Placeholder : null;
+        if (only is not null && !only.Editing && only.Block.HasMarkup) Render(only);
+    }
+
+    private void Render(Row row)
+    {
+        var inlines = row.View.Inlines ??= new InlineCollection();
+        inlines.Clear();
+        row.Spans = NoteDocument.ParseInline(row.Block.Text);
+        foreach (var span in row.Spans)
+        {
+            var run = new Run(span.Text);
+            if (span.Bold) run.FontWeight = FontWeight.Bold;
+            if (span.Italic) run.FontStyle = FontStyle.Italic;
+            if (span.Code)
+            {
+                run.FontFamily = Mono;
+                run.Background = CodeBack;
+            }
+            if (span.Url is not null)
+            {
+                run.Foreground = LinkBrush;
+                run.TextDecorations = TextDecorations.Underline;
+            }
+            if (span.Muted) run.Foreground = Muted;
+            inlines.Add(run);
+        }
+        if (row.Spans.Count == 0 && _rows.Count == 1 && row.Block.Kind == BlockKind.Paragraph)
+            inlines.Add(new Run(Placeholder) { Foreground = Muted });
+    }
+
+    private void FocusRow(Row row, int caret, int selectTo = -1)
+    {
+        if (row.Block.Kind == BlockKind.Divider) return;
+        if (row.Block.HasMarkup)
+        {
+            row.Editing = true;
+            row.View.IsVisible = false;
+            row.Edit.IsVisible = true;
+        }
+        _active = row;
+        row.Edit.Focus();
+        var length = row.Edit.Text?.Length ?? 0;
+        caret = Math.Clamp(caret, 0, length);
+        row.Edit.CaretIndex = caret;
+        row.Edit.SelectionStart = caret;
+        row.Edit.SelectionEnd = selectTo >= 0 ? Math.Clamp(selectTo, 0, length) : caret;
+        row.Frame.BringIntoView();
+    }
+
+    private void EndEdit(Row row)
+    {
+        // a context menu on the text box takes focus while it is open — keep editing
+        if (row.Edit.ContextFlyout?.IsOpen == true || row.Edit.ContextMenu?.IsOpen == true) return;
+        row.Editing = false;
+        if (!_rows.Contains(row) || !row.Block.HasMarkup) return;
+        Render(row);
+        row.View.IsVisible = true;
+        row.Edit.IsVisible = false;
+    }
+
+    private static void SetText(Row row, string text)
+    {
+        row.Block.Text = text; // set first, so the (possibly late) TextChanged sees no change
+        row.Edit.Text = text;
+    }
+
+    private static (int Start, int End) Selection(TextBox box)
+    {
+        var length = box.Text?.Length ?? 0;
+        var s = Math.Clamp(Math.Min(box.SelectionStart, box.SelectionEnd), 0, length);
+        var e = Math.Clamp(Math.Max(box.SelectionStart, box.SelectionEnd), s, length);
+        if (s == e) s = e = Math.Clamp(box.CaretIndex, 0, length);
+        return (s, e);
+    }
+
+    private static string StampNow()
+    {
+        var format = (Application.Current as App)?.Config.TimeBulletFormat ?? "yyyy-MM-dd HH:mm";
+        return TimestampService.Now(format);
+    }
+
+    private void ChangeKind(Row row, BlockKind kind, int level = 2)
+    {
+        var (s, e) = Selection(row.Edit);
+        var b = row.Block;
+        if (kind == BlockKind.Timed && b.Stamp.Length == 0)
+        {
+            b.Stamp = StampNow();
+            row.Stamp.Text = b.Stamp;
+        }
+        if (!b.IsList || kind is not (BlockKind.Bullet or BlockKind.Number or BlockKind.Timed)) b.Indent = 0;
+        b.Kind = kind;
+        b.Level = level;
+        ApplyKind(row);
+        RefreshLists();
+        FocusRow(row, s, e);
+        Changed?.Invoke();
+    }
+
+    /// <summary>The block that follows <paramref name="b"/> when Enter is pressed in it.</summary>
+    private static NoteBlock NextBlock(NoteBlock b) => b.IsList
+        ? new NoteBlock { Kind = b.Kind, Indent = b.Indent, Stamp = b.Kind == BlockKind.Timed ? StampNow() : "" }
+        : new NoteBlock { Kind = b.Kind == BlockKind.Quote ? BlockKind.Quote : BlockKind.Paragraph };
+
+    // ---- keyboard ----------------------------------------------------------------
+
+    private void Edit_KeyDown(Row row, KeyEventArgs e)
+    {
+        var box = row.Edit;
+        var text = box.Text ?? "";
+        var (s, end) = Selection(box);
+        var none = e.KeyModifiers == KeyModifiers.None;
+        var collapsed = s == end;
+        switch (e.Key)
+        {
+            case Key.Enter when none:
+                e.Handled = OnEnter(row, s, end);
+                break;
+            case Key.Back when none && collapsed && s == 0:
+                e.Handled = OnBackspaceAtStart(row);
+                break;
+            case Key.Delete when none && collapsed && s == text.Length:
+                e.Handled = OnDeleteAtEnd(row);
+                break;
+            case Key.Tab when row.Block.IsList && (none || e.KeyModifiers == KeyModifiers.Shift):
+                Indent(row, e.KeyModifiers == KeyModifiers.Shift ? -1 : 1);
+                e.Handled = true;
+                break;
+            case Key.Up when none:
+                if (CaretLine(box, out _) == 0 && Move(row, -1, atEnd: true)) e.Handled = true;
+                break;
+            case Key.Down when none:
+                if (CaretLine(box, out var lines) >= lines - 1 && Move(row, 1, atEnd: false)) e.Handled = true;
+                break;
+            case Key.Left when none && collapsed && s == 0:
+                if (Move(row, -1, atEnd: true)) e.Handled = true;
+                break;
+            case Key.Right when none && collapsed && s == text.Length:
+                if (Move(row, 1, atEnd: false)) e.Handled = true;
+                break;
+        }
+    }
+
+    /// <summary>The visual line the caret is on (wrapped lines count), and how many there are.</summary>
+    private static int CaretLine(TextBox box, out int lineCount)
+    {
+        var caret = Math.Clamp(box.CaretIndex, 0, box.Text?.Length ?? 0);
+        var layout = box.GetVisualDescendants().OfType<TextPresenter>().FirstOrDefault()?.TextLayout;
+        if (layout is null)
+        {
+            var text = box.Text ?? "";
+            lineCount = text.Count(c => c == '\n') + 1;
+            return text[..caret].Count(c => c == '\n');
+        }
+        lineCount = layout.TextLines.Count;
+        return layout.GetLineIndexFromCharacterIndex(caret, false);
+    }
+
+    private bool Move(Row row, int direction, bool atEnd)
+    {
+        var i = _rows.IndexOf(row) + direction;
+        while (i >= 0 && i < _rows.Count && _rows[i].Block.Kind == BlockKind.Divider) i += direction;
+        if (i < 0 || i >= _rows.Count) return false;
+        var target = _rows[i];
+        FocusRow(target, atEnd ? target.Edit.Text?.Length ?? 0 : 0);
+        return true;
+    }
+
+    private bool OnEnter(Row row, int s, int e)
+    {
+        var b = row.Block;
+        var text = row.Edit.Text ?? "";
+        var index = _rows.IndexOf(row);
+        if (b.Kind == BlockKind.Raw) return false;
+        if (b.Kind == BlockKind.Code)
+        {
+            // Enter on an empty last line leaves the code block
+            if (s != e || s != text.Length || !text.EndsWith('\n')) return false;
+            SetText(row, text[..^1]);
+            FocusRow(AddRow(index + 1, new NoteBlock()), 0);
+            Changed?.Invoke();
+            return true;
+        }
+
+        if (text.Length == 0 && (b.IsList || b.Kind == BlockKind.Quote))
+        {
+            // Enter on an empty item: step out one level, then out of the list
+            if (b.IsList && b.Indent > 0)
+            {
+                b.Indent--;
+                RefreshLists();
+                Changed?.Invoke();
+            }
+            else
+            {
+                ChangeKind(row, BlockKind.Paragraph);
+            }
+            return true;
+        }
+
+        if (s == 0 && e == 0 && text.Length > 0)
+        {
+            // at the start of a block: open an empty one above and stay put
+            var above = NextBlock(b);
+            if (b.Kind == BlockKind.Heading) above.Kind = BlockKind.Paragraph;
+            AddRow(index, above);
+            RefreshLists();
+            FocusRow(row, 0);
+            Changed?.Invoke();
+            return true;
+        }
+
+        var before = text[..s];
+        var after = text[e..];
+        var open = NoteDocument.OpenMarkers(before);
+        var reopen = string.Concat(open);
+        if (open.Count > 0)
+        {
+            // keep formatting that spans the split: "**bo|ld**" → "**bo**" + "**ld**"
+            before += string.Concat(Enumerable.Reverse(open));
+            after = reopen + after;
+        }
+        SetText(row, before);
+        var next = NextBlock(b);
+        next.Text = after;
+        var newRow = AddRow(index + 1, next);
+        RefreshLists();
+        FocusRow(newRow, reopen.Length);
+        if (!row.Editing) Render(row);
+        Changed?.Invoke();
+        return true;
+    }
+
+    private bool OnBackspaceAtStart(Row row)
+    {
+        var b = row.Block;
+        var text = row.Edit.Text ?? "";
+        if (b.IsList && b.Indent > 0)
+        {
+            Indent(row, -1);
+            return true;
+        }
+        if (b.Kind is BlockKind.Heading or BlockKind.Quote or BlockKind.Bullet or BlockKind.Number or BlockKind.Timed
+            || b.Kind is BlockKind.Code or BlockKind.Raw && text.Length == 0)
+        {
+            ChangeKind(row, BlockKind.Paragraph);
+            return true;
+        }
+        if (b.Kind != BlockKind.Paragraph) return false;
+
+        var index = _rows.IndexOf(row);
+        if (index <= 0) return false;
+        var prev = _rows[index - 1];
+        if (prev.Block.Kind == BlockKind.Divider)
+        {
+            RemoveRow(prev);
+            Changed?.Invoke();
+            return true;
+        }
+        var prevText = prev.Edit.Text ?? "";
+        if (prev.Block.Kind == BlockKind.Raw)
+        {
+            FocusRow(prev, prevText.Length);
+            if (text.Length == 0) RemoveRow(row);
+            Changed?.Invoke();
+            return true;
+        }
+        // join this paragraph onto the end of the previous block
+        SetText(prev, prevText + text);
+        FocusRow(prev, prevText.Length);
+        RemoveRow(row);
+        RefreshLists();
+        Changed?.Invoke();
+        return true;
+    }
+
+    private bool OnDeleteAtEnd(Row row)
+    {
+        var index = _rows.IndexOf(row);
+        if (index < 0 || index + 1 >= _rows.Count || !row.Block.HasMarkup && row.Block.Kind != BlockKind.Code) return false;
+        var next = _rows[index + 1];
+        if (next.Block.Kind == BlockKind.Divider)
+        {
+            RemoveRow(next);
+            Changed?.Invoke();
+            return true;
+        }
+        if (!next.Block.HasMarkup) return false;
+        var text = row.Edit.Text ?? "";
+        SetText(row, text + next.Block.Text);
+        RemoveRow(next);
+        RefreshLists();
+        FocusRow(row, text.Length);
+        Changed?.Invoke();
+        return true;
+    }
+
+    private void Indent(Row row, int delta)
+    {
+        var index = _rows.IndexOf(row);
+        var max = index > 0 && _rows[index - 1].Block.IsList ? _rows[index - 1].Block.Indent + 1 : 0;
+        var next = Math.Clamp(row.Block.Indent + delta, 0, max);
+        if (next == row.Block.Indent) return;
+        row.Block.Indent = next;
+        RefreshLists();
+        Changed?.Invoke();
+    }
+
+    // ---- typing, pasting, clicking -----------------------------------------------------
+
+    private static readonly System.Text.RegularExpressions.Regex Shortcut =
+        new(@"^(#{1,3} |[-*•] |\d+[.)] |> )", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private void Edit_TextChanged(Row row)
+    {
+        var text = row.Edit.Text ?? "";
+        var old = row.Block.Text;
+        if (text == old) return;
+        row.Block.Text = text;
+        if (!row.Editing && row.Block.HasMarkup) Render(row);
+        if (row.Block.Kind == BlockKind.Paragraph) TryShortcut(row, old);
+        Changed?.Invoke();
+    }
+
+    /// <summary>Markdown-style shortcuts typed at the start of a paragraph: "- ", "1. ", "# ", "> ", "```", "---".</summary>
+    private void TryShortcut(Row row, string old)
+    {
+        var text = row.Block.Text;
+        string prefix;
+        BlockKind kind;
+        var level = 2;
+        if (text == "---")
+        {
+            prefix = "---";
+            kind = BlockKind.Divider;
+        }
+        else if (text.StartsWith("```"))
+        {
+            prefix = "```";
+            kind = BlockKind.Code;
+        }
+        else
+        {
+            var m = Shortcut.Match(text);
+            if (!m.Success) return;
+            prefix = m.Value;
+            kind = prefix[0] switch
+            {
+                '#' => BlockKind.Heading,
+                '>' => BlockKind.Quote,
+                >= '0' and <= '9' => BlockKind.Number,
+                _ => BlockKind.Bullet,
+            };
+            if (kind == BlockKind.Heading) level = prefix.Length - 1;
+        }
+        if (old.StartsWith(prefix)) return;
+
+        // change the text box after its own text update has finished
+        Dispatcher.UIThread.Post(() =>
+        {
+            var current = row.Edit.Text ?? "";
+            if (!_rows.Contains(row) || row.Block.Kind != BlockKind.Paragraph || !current.StartsWith(prefix)) return;
+            var caret = Math.Max(0, row.Edit.CaretIndex - prefix.Length);
+            SetText(row, current[prefix.Length..]);
+            if (kind == BlockKind.Divider)
+            {
+                row.Block.Kind = BlockKind.Divider;
+                ApplyKind(row);
+                var index = _rows.IndexOf(row);
+                var next = index + 1 < _rows.Count && _rows[index + 1].Block.HasMarkup ? _rows[index + 1] : AddRow(index + 1, new NoteBlock());
+                RefreshLists();
+                FocusRow(next, 0);
+                Changed?.Invoke();
+                return;
+            }
+            row.Block.Level = level;
+            ChangeKind(row, kind, level);
+            FocusRow(row, caret);
+        });
+    }
+
+    private async void Edit_Paste(Row row, RoutedEventArgs e)
+    {
+        if (!row.Block.HasMarkup) return; // code and HTML blocks take text as it is
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is null) return;
+        e.Handled = true;
+        string? text;
+        try
+        {
+            text = await clipboard.GetTextAsync();
+        }
+        catch
+        {
+            return;
+        }
+        if (string.IsNullOrEmpty(text) || !_rows.Contains(row)) return;
+        InsertPlain(row, text);
+    }
+
+    /// <summary>Pastes text; each further line becomes its own block (list and heading prefixes are recognised).</summary>
+    private void InsertPlain(Row row, string text)
+    {
+        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        var current = row.Edit.Text ?? "";
+        var (s, e) = Selection(row.Edit);
+        if (lines.Length == 1)
+        {
+            SetText(row, current[..s] + text + current[e..]);
+            FocusRow(row, s + text.Length);
+            Changed?.Invoke();
+            return;
+        }
+
+        var after = current[e..];
+        SetText(row, current[..s] + lines[0].TrimEnd());
+        var index = _rows.IndexOf(row);
+        var last = row;
+        foreach (var line in lines.Skip(1))
+        {
+            if (line.Trim().Length == 0) continue;
+            var block = NoteDocument.ParseLine(line, fromHtml: false, markdown: true);
+            if (block.Kind == BlockKind.Paragraph && row.Block.IsList)
+            {
+                // plain lines pasted into a list become more items of that list
+                block = NextBlock(row.Block);
+                block.Text = line.Trim();
+            }
+            last = AddRow(++index, block);
+        }
+        var caret = last.Block.Text.Length;
+        SetText(last, last.Block.Text + after);
+        if (last != row && !last.Editing) Render(last);
+        RefreshLists();
+        FocusRow(last, caret);
+        Changed?.Invoke();
+    }
+
+    private void View_PointerPressed(Row row, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(row.View).Properties.IsLeftButtonPressed) return;
+        var rendered = row.View.TextLayout.HitTestPoint(e.GetPosition(row.View)).TextPosition;
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && UrlAt(row, rendered) is { } url)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true });
+            }
+            catch
+            {
+                // not a launchable address — ignore
+            }
+            e.Handled = true;
+            return;
+        }
+        e.Handled = true;
+        FocusRow(row, NoteDocument.SourceIndex(row.Spans, rendered, row.Block.Text.Length));
+    }
+
+    private static string? UrlAt(Row row, int rendered)
+    {
+        foreach (var span in row.Spans)
+        {
+            if (rendered < span.Text.Length) return span.Url;
+            rendered -= span.Text.Length;
+        }
+        return row.Spans.LastOrDefault()?.Url;
+    }
+
+    private void Filler_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        var last = _rows[^1];
+        if (last.Block.Kind == BlockKind.Paragraph && last.Block.Text.Length == 0)
+        {
+            FocusRow(last, 0);
+        }
+        else
+        {
+            var row = AddRow(_rows.Count, new NoteBlock());
+            RefreshLists();
+            FocusRow(row, 0);
+        }
+        e.Handled = true;
+    }
+}
