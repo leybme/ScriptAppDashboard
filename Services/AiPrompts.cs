@@ -55,7 +55,7 @@ public static class AiPrompts
             _ => "Improve the writing.",
         };
         var keep = wholeNote
-            ? "Keep the Markdown structure (headings, lists, quotes, code blocks, tables)."
+            ? "Keep the Markdown structure (headings, lists, quotes, code blocks, tables, ```chart blocks) and leave lines of HTML unchanged."
             : "Keep inline Markdown formatting (**bold**, *italic*, `code`, [links](url)).";
         var language = action.StartsWith("translate:") ? "" : "Answer in the same language as the text.";
         return $"""
@@ -67,6 +67,67 @@ public static class AiPrompts
             {text}
             """;
     }
+
+    private const string ChartFormat = """
+        A chart is a fenced block like this one:
+        ```chart bar
+        title: Revenue by quarter
+        | Quarter | North | South |
+        | --- | --- | --- |
+        | Q1 | 120 | 90 |
+        | Q2 | 135 | 110 |
+        ```
+        The word after "chart" is bar, line or pie. The first column holds the labels; every other column is one
+        series of plain numbers (units go in the title or the header, not in the cells). A pie uses only the first
+        series. When asked to show data as a chart, read the numbers from the note (sentences, lists or tables),
+        keep the original data unless told to remove it, and put the chart right after that data.
+        Lines of HTML are blocks the app keeps as written: leave them unchanged unless the instruction is about them.
+        """;
+
+    /// <summary>
+    /// A free-form change to a whole note ("make a chart from the numbers", "turn the list into a table"). The note
+    /// comes as numbered blocks ("[1]" …); the answer is edit commands for <see cref="NoteDocument.ParseEdits"/>.
+    /// </summary>
+    public static string EditNote(string instruction, string numberedNote, int blockCount) => $"""
+        You are editing a note in a notes app. Do what the instruction asks.
+
+        Instruction: {instruction}
+
+        The note is Markdown (headings, lists, quotes, code blocks, tables, pictures ![](images/…) and charts), split
+        into numbered blocks. {ChartFormat}
+
+        Reply ONLY with edit commands. Each command is a line of its own, followed by the Markdown it needs:
+        @@ replace 3
+        (new Markdown for block 3; "@@ replace 3-5" replaces blocks 3 to 5 with one piece of Markdown)
+        @@ insert after 2
+        (new Markdown to add after block 2; "@@ insert after 0" adds it at the top)
+        @@ delete 4
+        Use as few commands as possible and never repeat blocks you don't change. To rewrite everything (for example
+        to translate the note), use "@@ replace 1-{Math.Max(1, blockCount)}". Don't write the [n] numbers in your Markdown.
+        Keep the note's language unless the instruction asks for another one. No preamble and no explanation.
+
+        The note ({blockCount} blocks):
+        {numberedNote}
+        """;
+
+    /// <summary>A free-form change to the selected part of a note; the answer replaces the selection.</summary>
+    public static string EditSelection(string instruction, string note, string selection) => $"""
+        You are editing a note in a notes app. Do what the instruction asks with the selected part shown at the end;
+        the rest of the note is only context.
+
+        Instruction: {instruction}
+
+        The note is Markdown (headings, lists, quotes, code blocks, tables, pictures and charts). {ChartFormat}
+
+        Return only the new content that replaces the selected part. Keep the note's language unless the instruction
+        asks for another one. Output only the Markdown — no preamble, no explanation, no ``` fence around the answer.
+
+        The note:
+        {note}
+
+        The selected part:
+        {selection}
+        """;
 
     public static string Continue(string note, string lastBlock) => $"""
         Continue writing this note from where the marked paragraph ends: one to three short paragraphs (or more list

@@ -387,6 +387,16 @@ public static class NotesService
     public static string HtmlToMarkdown(string html)
         => NoteDocument.ToMarkdown(NoteDocument.Parse(html), RawHtmlToMarkdown);
 
+    /// <summary>
+    /// Markdown for the AI that survives the trip back through <see cref="NoteDocument.FromMarkdown"/>: charts stay
+    /// ```chart fences and HTML the editor keeps as source stays HTML (without blank lines, which would end the block).
+    /// </summary>
+    public static string NoteToAiMarkdown(string html) => BlocksToAiMarkdown(NoteDocument.Parse(html));
+
+    /// <inheritdoc cref="NoteToAiMarkdown"/>
+    public static string BlocksToAiMarkdown(IReadOnlyList<NoteBlock> blocks)
+        => NoteDocument.ToMarkdown(blocks, raw => Regex.Replace(raw.Trim(), @"\n\s*\n", "\n"), chartFences: true);
+
     /// <summary>Best-effort Markdown for HTML the editor keeps as source (tables, styled blocks, full documents).</summary>
     private static string RawHtmlToMarkdown(string html)
     {

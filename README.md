@@ -110,8 +110,15 @@ Kiro is listed as a provider and will be supported in a later version. The **Tes
 
 - **Ask AI**: a quick question from the main window, the tray, or the global hotkey `Ctrl+Alt+Space` (Windows; set it in Settings). Follow-up questions see the earlier ones. You can include the clipboard or the window you were working in, and save the answer as a note.
 - **Notes**: the **✨ AI** menu improves, shortens, fixes or translates the selected text, or the whole note when nothing is selected. It can also continue writing, summarise the note, extract to-dos, turn raw meeting notes into minutes, and suggest a title and tags. You see the answer first and choose whether to replace, insert or save it as a new note. A note saved without a title gets an AI title and tags automatically.
+- **Ask AI to change the note…**: the first item in the **✨ AI** menu. Type what you want in your own words, such as "read the sales numbers and show them as a bar chart", "turn the list into a table" or "add a total row". The AI changes only the parts it needs to and leaves the rest of the note exactly as it was. With text selected, it works on the selection only.
 - **Work log**: **AI report** writes a standup-style summary of the range on screen (what you worked on, where your focus went, what's next). **AI timesheet** groups the time into projects with hours. Either can be saved as a note. When working hours end, an AI summary of the day is written into a note.
 - **Scripts**: right-click a tile and choose **Explain with AI…** to see what a script does and anything risky before you run it. **AI Script** writes a new script from a description; you review it before it's saved and added as a tile.
+
+![Ask AI to change the note: type an instruction](docs/images/screenshotAskAiDialog.png)
+
+The answer is shown first. **Apply to the note** puts the chart right after the sentence with the numbers:
+
+![The note after the AI added a bar chart of the sales numbers](docs/images/screenshotAskAiResult.png)
 
 Nothing is sent to the AI unless you use one of these features, set up an AI timer, or leave the automatic title and day summary turned on. Both can be switched off in Settings → AI.
 

@@ -31,7 +31,7 @@ dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 | `Services/ChartLayout.cs` | Lays out a chart block (bar / line / pie) as shapes with SVG path data and colour tokens, so the editor (`ChartCanvas`) and the export (`ToSvg`) draw the same picture. Also `Data` (labels + series from the cells), `ParseNumber`, `HoverAt`, and the categorical palette. |
 | `Services/TimestampService.cs` | Timestamp formats: .NET date formats, or a template whose `{…}` parts are formatted (InvariantCulture). |
 | `Services/AiService.cs` | Runs the AI CLI (`AskAsync`, never throws): provider `claude` → `claude -p --model <AiModel>` (default `claude-haiku-5-5`), `custom` → `AiCommand`, `kiro` → not supported yet. Prompt on stdin (UTF-8), started in an empty temp folder. Also `{placeholder}` expansion, `ExtractJson`, `ExtractCode`, `StripOuterFence`. |
-| `Services/AiPrompts.cs` | Every AI prompt (work report, timesheet, note rewrites, minutes, title/tags, explain/generate script, timer from text). |
+| `Services/AiPrompts.cs` | Every AI prompt (work report, timesheet, note rewrites, free-form note edits `EditNote` / `EditSelection`, minutes, title/tags, explain/generate script, timer from text). |
 | `Services/HotkeyService.cs` | The global "Ask AI" hotkey: `RegisterHotKey` on its own message-loop thread (Windows). |
 | `Views/AiResultWindow.axaml(.cs)` | Shared dialog: runs an AI request (Stop / Try again), shows the editable answer and action buttons; returns `(action, text)`. |
 | `Views/QuickAskWindow`, `Views/AiScriptWindow` | Ask AI (single instance via `App.ShowQuickAsk`), and write-a-script-with-AI. |
@@ -97,6 +97,8 @@ Notes, images and the work log live in `DataDir`: the `DataFolder` setting (e.g.
   - The notes AI menu captures the selection (`NoteEditor.CaptureSelection`) in the button's `Click` before showing the flyout; the flyout takes focus and the TextBox drops its selection.
   - Answers are Markdown; `NoteDocument.FromMarkdown` turns them into blocks (Markdown tables become Table blocks, a ```` ```chart [type] ```` fence with optional `title:` / `type:` lines and CSV or a Markdown table becomes a Chart).
   - The end-of-day summary runs from a 1-minute timer in `App` (`AiDaySummaryLast` makes it once per working day).
+  - Note AI actions send `NotesService.NoteToAiMarkdown` (charts as ```` ```chart ```` fences, HTML blocks verbatim), which `FromMarkdown` reads back without loss, so "Replace the note" keeps charts and HTML blocks.
+  - "Ask AI to change the note…" (whole note) doesn't trust the model to repeat the note: Haiku answers with only the new part. The note goes out as numbered units (`NoteDocument.Units`: a list or quote is one unit). The model replies with `@@ replace 3[-5]` / `@@ insert after 2` / `@@ delete 4` commands, and `ParseEdits` + `ApplyEdits` apply them, keeping untouched blocks as they are. An answer without commands is added at the end.
 - **Sync (data folder):**
   - Save notes one at a time with `NotesService.Save(note)`; never rewrite all notes, or two PCs overwrite each other.
   - `NotesService` remembers what it wrote, so the watcher ignores our own saves. Files whose name isn't `<id>.json` (sync conflict copies) are adopted as a separate "(conflicting copy)" note, never dropped.

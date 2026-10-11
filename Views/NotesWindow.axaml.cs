@@ -747,8 +747,20 @@ public partial class NotesWindow : Window
         FlyoutBase.ShowAttachedFlyout(AiButton);
     }
 
+    /// <summary>The last instruction typed for "Ask AI to change the note", offered again next time.</summary>
+    private static string _lastInstruction = "";
+
+    private static readonly string[] InstructionExamples =
+    {
+        "Make a chart from the numbers in this note",
+        "Turn the list into a table",
+        "Add a total row to the table",
+        "Sort the table by the last column, largest first",
+    };
+
     private static string ActionLabel(string action) => action switch
     {
+        "ask" => "AI edit",
         "shorten" => "Shorten",
         "fix" => "Fix spelling and grammar",
         "improve" => "Improve writing",
@@ -760,9 +772,10 @@ public partial class NotesWindow : Window
     {
         if (sender is not MenuItem { Tag: string action } || _aiBusy) return;
         var selection = _codeView ? _aiHtmlSelection?.Text : _aiSelection is { Text.Length: > 0 } sel ? sel.Text : null;
-        var note = Cap(NotesService.HtmlToMarkdown(CurrentHtml()), 60000);
+        // charts and HTML blocks survive the round trip, so "Replace the note" keeps them
+        var note = Cap(NotesService.NoteToAiMarkdown(CurrentHtml()), 60000);
         var title = (TitleBox.Text ?? "").Trim();
-        if (selection is null && note.Trim().Length == 0)
+        if (selection is null && note.Trim().Length == 0 && action != "ask")
         {
             StatusText.Text = "This note is empty — write something first.";
             return;
@@ -775,8 +788,39 @@ public partial class NotesWindow : Window
 
         string heading, prompt;
         (string, string)[] buttons;
+        Func<System.Threading.CancellationToken, System.Threading.Tasks.Task<AiResult>>? ask = null;
         switch (action)
         {
+            case "ask":
+                if (_codeView) selection = null; // the answer is Markdown, not HTML source
+                var instruction = await Dialogs.Prompt(this, "Ask AI",
+                    selection is null ? "What should the AI change in this note?" : "What should the AI do with the selected text?",
+                    _lastInstruction, "e.g. Show the sales numbers as a bar chart", "Ask", InstructionExamples);
+                if (instruction is null) return;
+                _lastInstruction = instruction;
+                heading = "Ask AI — " + (instruction.Length > 60 ? instruction[..60] + "…" : instruction).ReplaceLineEndings(" ");
+                if (selection is not null)
+                {
+                    prompt = AiPrompts.EditSelection(instruction, note, selection);
+                    buttons = new[] { ("selection", "Replace the selection"), ("insert", "Insert below") };
+                    break;
+                }
+                // the AI answers with edit commands on numbered blocks; the window shows the note with them applied
+                var units = NoteDocument.Units(NoteDocument.Parse(CurrentHtml()));
+                var numbered = string.Join("\n\n", units.Select((u, i) => $"[{i + 1}]\n" + NotesService.BlocksToAiMarkdown(u)));
+                prompt = AiPrompts.EditNote(instruction, Cap(numbered, 60000), units.Count);
+                var editPrompt = prompt;
+                ask = async ct =>
+                {
+                    var result = await AiService.AskAsync(editPrompt, ct);
+                    if (!result.Ok) return result;
+                    var answer = AiService.StripOuterFence(result.Text);
+                    // no commands: the answer is new content; add it at the end rather than lose the note
+                    var edits = NoteDocument.ParseEdits(answer) ?? new List<NoteDocument.NoteEdit> { new("insert after", units.Count, units.Count, answer) };
+                    return result with { Text = NotesService.BlocksToAiMarkdown(NoteDocument.ApplyEdits(units, edits)) };
+                };
+                buttons = new[] { ("replace", "Apply to the note"), ("new", "Save as a new note") };
+                break;
             case "continue":
                 heading = "Continue writing";
                 var from = _aiSelection?.BlockText is { Length: > 0 } block ? block : note[Math.Max(0, note.Length - 600)..];
@@ -807,9 +851,23 @@ public partial class NotesWindow : Window
                 break;
         }
 
-        var choice = await AiResultWindow.Show(this, heading, ct => AiService.AskAsync(prompt, ct), buttons);
+        var choice = await AiResultWindow.Show(this, heading, ask ?? (ct => AiService.AskAsync(prompt, ct)), buttons);
         if (choice is not { } c) return;
-        ApplyAiResult(action, c.Action, AiService.StripOuterFence(c.Text), title);
+        var answer = AiService.StripOuterFence(c.Text);
+        if (c.Action == "replace" && LooksTruncated(note, answer)
+            && !await Dialogs.Confirm(this, "Replace the note?",
+                "The AI's answer is much shorter than the note, so replacing would remove most of it. "
+                + "To keep the note, choose Cancel and copy what you need from the AI window.", "Replace"))
+            return;
+        ApplyAiResult(action, c.Action, answer, title);
+    }
+
+    /// <summary>An answer meant to replace the note keeps less than half of its words (it probably holds only the new part).</summary>
+    private static bool LooksTruncated(string note, string answer)
+    {
+        static int Words(string s) => s.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
+        var before = Words(note);
+        return before >= 20 && Words(answer) < before / 2;
     }
 
     private void ApplyAiResult(string action, string choice, string text, string title)
@@ -829,6 +887,16 @@ public partial class NotesWindow : Window
                 if (_codeView && _aiHtmlSelection is { } h && h.End <= (HtmlBox.Text ?? "").Length && HtmlBox.Text![h.Start..h.End] == h.Text)
                 {
                     HtmlBox.Text = HtmlBox.Text[..h.Start] + text + HtmlBox.Text[h.End..];
+                }
+                else if (!_codeView && _aiSelection is not null && blocks.Any(b => b.IsGrid || b.Kind is BlockKind.Code or BlockKind.Raw))
+                {
+                    // a chart, table or code block can't sit inside a paragraph: take the selection out, add the blocks below
+                    if (!Editor.ReplaceSelection(_aiSelection, ""))
+                    {
+                        StatusText.Text = "The selected text changed meanwhile — use “Copy” in the AI window instead.";
+                        return;
+                    }
+                    Editor.InsertBlocks(blocks, _aiSelection);
                 }
                 else if (_codeView || _aiSelection is null || !Editor.ReplaceSelection(_aiSelection, text))
                 {

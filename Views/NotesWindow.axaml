@@ -75,11 +75,13 @@
                 ToolTip.Tip="Insert a bar, line or pie chart drawn from a small data table (or right-click a table → Make a chart)"
                 Click="Chart_Click"/>
         <Button x:Name="AiButton" Content="✨ AI ▾" AutomationProperties.Name="AI"
-                ToolTip.Tip="AI: rewrite, shorten, fix or translate the selected text (or the whole note), continue writing, summarise, extract to-dos, make meeting minutes, suggest a title and tags"
+                ToolTip.Tip="AI: ask for any change in your own words (e.g. make a chart from the numbers), rewrite, shorten, fix or translate the selected text (or the whole note), continue writing, summarise, extract to-dos, make meeting minutes, suggest a title and tags"
                 Click="Ai_Click">
           <FlyoutBase.AttachedFlyout>
             <MenuFlyout Placement="BottomEdgeAlignedLeft">
               <MenuItem x:Name="AiScopeItem" Header="On the selected text" IsEnabled="False"/>
+              <MenuItem Header="Ask AI to change the note…" Tag="ask" FontWeight="SemiBold" Click="AiAction_Click"/>
+              <Separator/>
               <MenuItem Header="Improve writing" Tag="improve" Click="AiAction_Click"/>
               <MenuItem Header="Shorten" Tag="shorten" Click="AiAction_Click"/>
               <MenuItem Header="Fix spelling and grammar" Tag="fix" Click="AiAction_Click"/>

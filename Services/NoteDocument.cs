@@ -374,6 +374,8 @@ public static class NoteDocument
 
     private static readonly Regex Fence = new(@"^\s*(```|~~~)", RegexOptions.Compiled);
     private static readonly Regex Rule = new(@"^\s*([-*_])(\s*\1){2,}\s*$", RegexOptions.Compiled);
+    private static readonly Regex HtmlBlockStart = new(
+        @"^\s*<(?:!--|!doctype\b|(?:p|div|h[1-6]|ul|ol|pre|blockquote|table|figure|hr|section|article|details|html|head|body|style)\b)", Ci);
     private static readonly Regex TableSeparator = new(@"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$", RegexOptions.Compiled);
 
     /// <summary>Markdown (e.g. an AI answer) as blocks: headings, lists, quotes, ``` code, --- rules, tables, and ```chart fences.</summary>
@@ -396,6 +398,14 @@ public static class NoteDocument
                 continue;
             }
             if (line.Trim().Length == 0) continue;
+            if (HtmlBlockStart.IsMatch(line))
+            {
+                // an HTML block runs to the next blank line, as in CommonMark
+                var html = new List<string> { line };
+                while (i + 1 < lines.Length && lines[i + 1].Trim().Length > 0) html.Add(lines[++i]);
+                blocks.AddRange(Parse(string.Join("\n", html)));
+                continue;
+            }
             if (Rule.IsMatch(line))
             {
                 blocks.Add(new NoteBlock { Kind = BlockKind.Divider });
@@ -548,6 +558,89 @@ public static class NoteDocument
         if (!table.Header && cells.Count > 0)
             cells.Insert(0, cells[0].Select((_, i) => i == 0 ? "" : $"Series {i}").ToList());
         return new NoteBlock { Kind = BlockKind.Chart, Cells = cells };
+    }
+
+    // ---- AI edits ------------------------------------------------------------------------
+
+    /// <summary>
+    /// A note as numbered units for the AI: a whole list or quote is one unit, every other block is its own.
+    /// Empty paragraphs are left out.
+    /// </summary>
+    public static List<List<NoteBlock>> Units(IReadOnlyList<NoteBlock> blocks)
+    {
+        var units = new List<List<NoteBlock>>();
+        foreach (var b in blocks)
+        {
+            if (b.Kind == BlockKind.Paragraph && b.Text.Trim().Length == 0) continue;
+            var last = units.Count > 0 ? units[^1][^1] : null;
+            if (last is not null && (b.IsList && last.IsList || b.Kind == BlockKind.Quote && last.Kind == BlockKind.Quote)) units[^1].Add(b);
+            else units.Add(new List<NoteBlock> { b });
+        }
+        return units;
+    }
+
+    /// <summary>One edit command from the AI: replace, insert after, or delete units From–To (1-based).</summary>
+    public sealed record NoteEdit(string Op, int From, int To, string Markdown);
+
+    private static readonly Regex EditCommand = new(@"^\s*@@\s*(replace|insert after|delete)\s+(\d+)(?:\s*-\s*(\d+))?\s*(?:@@)?\s*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>The "@@ replace 3", "@@ insert after 2", "@@ delete 4" commands in an answer, each with the Markdown
+    /// below it; null when the answer holds none.</summary>
+    public static List<NoteEdit>? ParseEdits(string answer)
+    {
+        var edits = new List<NoteEdit>();
+        NoteEdit? current = null;
+        var body = new List<string>();
+        void Flush()
+        {
+            if (current is not null) edits.Add(current with { Markdown = string.Join("\n", body).Trim('\n', '\r', ' ') });
+            body.Clear();
+        }
+        foreach (var line in answer.Replace("\r\n", "\n").Split('\n'))
+        {
+            var m = EditCommand.Match(line);
+            if (!m.Success)
+            {
+                if (current is not null) body.Add(line);
+                continue;
+            }
+            Flush();
+            var from = int.Parse(m.Groups[2].Value);
+            var to = m.Groups[3].Success ? int.Parse(m.Groups[3].Value) : from;
+            current = new NoteEdit(m.Groups[1].Value.ToLowerInvariant(), Math.Min(from, to), Math.Max(from, to), "");
+        }
+        Flush();
+        return edits.Count > 0 ? edits : null;
+    }
+
+    /// <summary>
+    /// Applies edit commands to the units. Units nobody touches keep their blocks as they are; new content is parsed
+    /// with <see cref="FromMarkdown"/>. Commands on units that don't exist are ignored.
+    /// </summary>
+    public static List<NoteBlock> ApplyEdits(List<List<NoteBlock>> units, IEnumerable<NoteEdit> edits)
+    {
+        var removed = new bool[units.Count + 1];
+        var inserts = new List<NoteBlock>[units.Count + 1]; // [i] goes after unit i (0 = at the top)
+        foreach (var e in edits)
+        {
+            var from = Math.Max(e.Op == "insert after" ? 0 : 1, e.From);
+            var to = Math.Min(units.Count, e.To);
+            if (from > units.Count || e.Op != "insert after" && from > to) continue;
+            if (e.Op is "replace" or "delete")
+                for (var k = from; k <= to; k++) removed[k] = true;
+            if (e.Op is "replace" or "insert after" && e.Markdown.Length > 0)
+            {
+                var at = e.Op == "replace" ? from - 1 : from;
+                (inserts[at] ??= new List<NoteBlock>()).AddRange(FromMarkdown(e.Markdown));
+            }
+        }
+        var result = new List<NoteBlock>();
+        for (var i = 0; i <= units.Count; i++)
+        {
+            if (i > 0 && !removed[i]) result.AddRange(units[i - 1]);
+            if (inserts[i] is { } added) result.AddRange(added);
+        }
+        return result;
     }
 
     /// <summary>The visible text of inline markup.</summary>
@@ -1129,8 +1222,11 @@ public static class NoteDocument
         return sb.ToString().TrimEnd('\n');
     }
 
-    /// <summary>Blocks as Markdown; Raw blocks go through <paramref name="rawHtml"/>.</summary>
-    public static string ToMarkdown(IReadOnlyList<NoteBlock> blocks, Func<string, string> rawHtml)
+    /// <summary>
+    /// Blocks as Markdown; Raw blocks go through <paramref name="rawHtml"/>. With <paramref name="chartFences"/> a chart
+    /// is written as a ```chart fence (which <see cref="FromMarkdown"/> reads back) instead of a caption and a table.
+    /// </summary>
+    public static string ToMarkdown(IReadOnlyList<NoteBlock> blocks, Func<string, string> rawHtml, bool chartFences = false)
     {
         var sb = new StringBuilder();
         var (numbers, depths) = ListInfo(blocks);
@@ -1162,6 +1258,11 @@ public static class NoteDocument
                 case BlockKind.Divider: sb.Append("---"); break;
                 case BlockKind.Raw: sb.Append(rawHtml(b.Text)); break;
                 case BlockKind.Table: sb.Append(TableMarkdown(b.Cells, b.Header)); break;
+                case BlockKind.Chart when chartFences:
+                    sb.Append("```chart ").Append(ChartTypeName(b.ChartType)).Append('\n');
+                    if (text.Trim().Length > 0) sb.Append("title: ").Append(text.Trim().ReplaceLineEndings(" ")).Append('\n');
+                    sb.Append(TableMarkdown(b.Cells, header: true)).Append("\n```");
+                    break;
                 case BlockKind.Chart:
                     sb.Append("**").Append(text.Trim().Length > 0 ? text.Trim() : "Chart").Append("** (")
                       .Append(ChartTypeName(b.ChartType)).Append(" chart)\n\n").Append(TableMarkdown(b.Cells, header: true));
