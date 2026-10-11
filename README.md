@@ -50,6 +50,14 @@ The paragraph being edited shows its formatting marks:
 
 ![Editing a paragraph shows its formatting marks](docs/images/screenshotNotesEditing.png)
 
+Tables and charts sit in the note like any other block. Hover a chart to see the values of a column or slice:
+
+![A table and a bar chart in a note, with the hover tooltip](docs/images/screenshotNotesTable.png)
+
+**Edit data** opens the numbers a chart is drawn from; change them and the chart redraws:
+
+![A line chart with its data table open for editing](docs/images/screenshotNotesCharts.png)
+
 ### Interval timers
 
 Repeat a reminder every 30 seconds to every few hours. A timer can:
