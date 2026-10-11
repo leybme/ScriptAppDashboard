@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
@@ -47,6 +48,7 @@ public partial class App : Application
             SettingsChanged += ApplyHotkey;
             _daySummaryTimer.Tick += (_, _) => CheckDaySummary();
             _daySummaryTimer.Start();
+            StartDataFolder();
 
             var startMinimized = desktop.Args?.Contains("--minimized") == true;
             if (!startMinimized)
@@ -196,6 +198,81 @@ public partial class App : Application
         }
     }
 
+    // ---- data folder (OneDrive sync) ---------------------------------------------------
+
+    /// <summary>Raised on the UI thread after another PC changed the shared timers.</summary>
+    public event Action? TimersReloaded;
+
+    private FileSystemWatcher? _timersWatcher;
+    private readonly Avalonia.Threading.DispatcherTimer _timersReload = new() { Interval = TimeSpan.FromSeconds(1) };
+
+    private void StartDataFolder()
+    {
+        if (ConfigService.DataDirError is { } error)
+            Views.ToastWindow.ShowToast("Data folder unavailable", error, ShowSettings, 30);
+        NotesService.Watch();
+        // pictures removed from notes are deleted after a week (a newer one may be in a note not saved or synced yet)
+        _ = Task.Run(() =>
+        {
+            try { NotesService.DeleteUnusedImages(NotesService.Load(), TimeSpan.FromDays(7)); }
+            catch { /* next start */ }
+        });
+
+        if (!Config.SyncTimers || !ConfigService.IsSynced) return;
+        _timersReload.Tick += (_, _) =>
+        {
+            _timersReload.Stop();
+            ReloadSharedTimers();
+        };
+        try
+        {
+            _timersWatcher = new FileSystemWatcher(ConfigService.DataDir, "timers.json")
+            {
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+            };
+            FileSystemEventHandler changed = (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                _timersReload.Stop();
+                _timersReload.Start();
+            });
+            _timersWatcher.Changed += changed;
+            _timersWatcher.Created += changed;
+            _timersWatcher.Renamed += (s, e) => changed(s, e);
+            _timersWatcher.EnableRaisingEvents = true;
+        }
+        catch
+        {
+            // shared timers are still read at the next start
+        }
+    }
+
+    /// <summary>Takes over the timers another PC saved; only new or retimed timers restart their countdown.</summary>
+    private void ReloadSharedTimers()
+    {
+        if (ConfigService.LoadTimersIfChanged() is not { } timers) return;
+        var before = Config.Timers.ToDictionary(t => t.Id);
+        Config.Timers = timers;
+        foreach (var t in timers)
+            if (!before.TryGetValue(t.Id, out var old) || old.IntervalMinutes != t.IntervalMinutes || old.Enabled != t.Enabled)
+                TimerService.Reschedule(t.Id);
+        try { SaveConfig(); } catch { RefreshTrayMenu(); }
+        TimersReloaded?.Invoke();
+    }
+
+    /// <summary>Starts a new copy of the app and quits this one (after the data folder changed).</summary>
+    public void Restart()
+    {
+        try
+        {
+            if (Environment.ProcessPath is { } exe) System.Diagnostics.Process.Start(exe);
+        }
+        catch
+        {
+            return; // keep running rather than leave the user with no app
+        }
+        ExitApp();
+    }
+
     // ---- AI ---------------------------------------------------------------------------
 
     private Views.QuickAskWindow? _quickAskWindow;
@@ -232,20 +309,11 @@ public partial class App : Application
         _quickAskWindow.Summon(foreground);
     }
 
-    /// <summary>Adds a note made outside the notes window (AI answers, day summaries). An open notes window keeps
-    /// its own list and writes it back on save, so the note must go through that list.</summary>
+    /// <summary>Saves a note made outside the notes window (AI answers, day summaries) and shows it in an open notes window.</summary>
     public void AddNote(NoteItem note)
     {
-        if (_notesWindow is not null)
-        {
-            _notesWindow.AddNote(note);
-        }
-        else
-        {
-            var notes = NotesService.Load();
-            notes.Add(note);
-            NotesService.Save(notes);
-        }
+        NotesService.Save(note);
+        _notesWindow?.AddNote(note);
         WorkLogService.LogNote(note);
     }
 
@@ -260,12 +328,11 @@ public partial class App : Application
         }
         try
         {
-            var notes = NotesService.Load();
-            var note = notes.FirstOrDefault(n => n.Id == id);
+            var note = NotesService.Load().FirstOrDefault(n => n.Id == id);
             if (note is null || note.Title != untitled) return;
             note.Title = title;
             note.Tags = MergeTags(note.Tags, tags);
-            NotesService.Save(notes);
+            NotesService.Save(note);
         }
         catch
         {

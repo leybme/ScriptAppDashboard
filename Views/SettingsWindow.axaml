@@ -17,14 +17,34 @@
 
     <TabControl>
       <TabItem Header="General">
+        <ScrollViewer>
         <StackPanel Spacing="12" Margin="4,16,4,0">
           <CheckBox x:Name="StartupCheck" Content="Start with the system (hidden in the tray)"/>
-          <TextBlock Text="Settings, scripts, notes and the work log are stored in:" FontSize="12" Foreground="Gray"/>
+          <TextBlock Text="Settings and scripts on this PC are stored in:" FontSize="12" Foreground="Gray"/>
           <DockPanel>
             <Button DockPanel.Dock="Right" Content="Open folder" Margin="8,0,0,0" Click="OpenConfigFolder_Click"/>
             <TextBox x:Name="ConfigPathBox" IsReadOnly="True"/>
           </DockPanel>
+
+          <TextBlock Text="Data folder — notes, pictures and the work log" FontWeight="SemiBold" Margin="0,8,0,0"/>
+          <TextBlock FontSize="12" Foreground="Gray" TextWrapping="Wrap"
+                     Text="Put it in OneDrive (or Dropbox, Google Drive…) to have the same notes on several PCs. Each PC keeps its own work-log file in it; the Work Log adds them up. When you change the folder, your notes, pictures and work log are copied there and the app restarts."/>
+          <DockPanel>
+            <Button DockPanel.Dock="Right" Content="Open" Margin="8,0,0,0" Click="OpenDataFolder_Click"/>
+            <TextBox x:Name="DataPathBox" IsReadOnly="True" AutomationProperties.Name="Data folder"/>
+          </DockPanel>
+          <WrapPanel>
+            <Button x:Name="OneDriveButton" Content="Use OneDrive" Margin="0,0,8,4" Click="UseOneDrive_Click"
+                    ToolTip.Tip="Keep the data in a ScriptAppDashboard folder in your OneDrive"/>
+            <Button Content="Choose folder…" Margin="0,0,8,4" Click="ChooseDataFolder_Click"/>
+            <Button Content="Only this PC" Margin="0,0,8,4" Click="LocalDataFolder_Click"
+                    ToolTip.Tip="Keep the data in the settings folder above (not synced)"/>
+          </WrapPanel>
+          <CheckBox x:Name="SyncTimersCheck"
+                    Content="Share the interval timers through this folder too (every PC gets the same timers)"/>
+          <TextBlock x:Name="DataFolderText" FontSize="12" TextWrapping="Wrap"/>
         </StackPanel>
+        </ScrollViewer>
       </TabItem>
 
       <TabItem Header="Timestamp">
@@ -68,7 +88,7 @@
           <NumericUpDown x:Name="IdleBox" Minimum="1" Maximum="240" Increment="1" FormatString="0"
                          HorizontalAlignment="Left" MinWidth="160"/>
           <TextBlock FontSize="12" Foreground="Gray" TextWrapping="Wrap"
-                     Text="Changes to the sampling interval apply as soon as you press Save. Window titles are stored only on this computer."/>
+                     Text="Changes to the sampling interval apply as soon as you press Save. Window titles are stored in the data folder (General tab) — only on this PC unless you chose a synced folder."/>
 
           <TextBlock Text="Working hours" FontWeight="SemiBold" Margin="0,10,0,0"/>
           <TextBlock FontSize="12" Foreground="Gray" TextWrapping="Wrap"

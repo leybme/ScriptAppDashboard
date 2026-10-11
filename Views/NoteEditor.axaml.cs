@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using Avalonia;
 using Avalonia.Automation;
@@ -11,6 +12,8 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using ScriptAppDashboard.Services;
@@ -34,6 +37,8 @@ public partial class NoteEditor : UserControl
         public required TextBlock View;
         public required TextBox Edit;
         public required Border Rule;
+        public required Image Picture;
+        public Bitmap? Bitmap;
         public List<InlineSpan> Spans = new();
         public bool Editing;
     }
@@ -58,6 +63,10 @@ public partial class NoteEditor : UserControl
     {
         InitializeComponent();
         Filler.PointerPressed += Filler_PointerPressed;
+        DragDrop.SetAllowDrop(this, true);
+        AddHandler(DragDrop.DragOverEvent, OnDragOver);
+        AddHandler(DragDrop.DropEvent, OnDrop);
+        DetachedFromVisualTree += (_, _) => DisposePictures();
         Load("");
     }
 
@@ -66,6 +75,7 @@ public partial class NoteEditor : UserControl
     /// <summary>Shows a note body. Does not raise <see cref="Changed"/>.</summary>
     public void Load(string html)
     {
+        DisposePictures();
         _rows.Clear();
         BlockHost.Children.Clear();
         _active = null;
@@ -81,7 +91,7 @@ public partial class NoteEditor : UserControl
     /// <summary>Puts the caret at the start of the first block.</summary>
     public void FocusStart()
     {
-        var row = _rows.FirstOrDefault(r => r.Block.Kind != BlockKind.Divider);
+        var row = _rows.FirstOrDefault(r => !r.Block.IsAtomic);
         if (row is not null) FocusRow(row, 0);
     }
 
@@ -183,7 +193,7 @@ public partial class NoteEditor : UserControl
     /// <summary>The block last edited and its selection (<see cref="EditorSelection.Text"/> is empty when nothing is selected).</summary>
     public EditorSelection? CaptureSelection()
     {
-        if (_active is not { } row || !_rows.Contains(row) || row.Block.Kind == BlockKind.Divider) return null;
+        if (_active is not { } row || !_rows.Contains(row) || row.Block.IsAtomic) return null;
         var text = row.Edit.Text ?? "";
         var (s, e) = row.Editing ? Selection(row.Edit) : (text.Length, text.Length);
         return new EditorSelection(row, s, e, text[s..e], text);
@@ -224,7 +234,7 @@ public partial class NoteEditor : UserControl
         foreach (var block in blocks) last = AddRow(index++, block);
         if (emptyOnly is not null) RemoveRow(emptyOnly);
         RefreshLists();
-        if (last is not null && last.Block.Kind != BlockKind.Divider) FocusRow(last, last.Block.Text.Length);
+        if (last is not null && !last.Block.IsAtomic) FocusRow(last, last.Block.Text.Length);
         Changed?.Invoke();
     }
 
@@ -232,8 +242,8 @@ public partial class NoteEditor : UserControl
 
     private Row? ActiveRow()
     {
-        if (_active is not null && _rows.Contains(_active) && _active.Block.Kind != BlockKind.Divider) return _active;
-        return _rows.FirstOrDefault(r => r.Block.Kind != BlockKind.Divider);
+        if (_active is not null && _rows.Contains(_active) && !_active.Block.IsAtomic) return _active;
+        return _rows.FirstOrDefault(r => !r.Block.IsAtomic);
     }
 
     private Row CreateRow(NoteBlock block)
@@ -264,7 +274,17 @@ public partial class NoteEditor : UserControl
         };
         var edit = new TextBox { Classes = { "blk" }, Text = block.Text };
         var rule = new Border { Height = 1, Background = Line, Margin = new Thickness(0, 8), IsVisible = false };
-        var content = new Panel { Children = { view, edit, rule } };
+        var picture = new Image
+        {
+            Stretch = Stretch.Uniform,
+            StretchDirection = StretchDirection.DownOnly,
+            MaxHeight = 480,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 4),
+            IsVisible = false,
+            Cursor = new Cursor(StandardCursorType.Hand),
+        };
+        var content = new Panel { Children = { view, edit, rule, picture } };
         Grid.SetColumn(content, 1);
         var frame = new Border
         {
@@ -274,8 +294,10 @@ public partial class NoteEditor : UserControl
         var row = new Row
         {
             Block = block, Frame = frame, MarkerHost = markerHost, Marker = marker, Stamp = stamp,
-            View = view, Edit = edit, Rule = rule,
+            View = view, Edit = edit, Rule = rule, Picture = picture,
         };
+        picture.DoubleTapped += (_, _) => OpenPicture(row);
+        picture.ContextMenu = PictureMenu(row);
         edit.AddHandler(KeyDownEvent, (_, e) => Edit_KeyDown(row, e), RoutingStrategies.Tunnel);
         edit.TextChanged += (_, _) => Edit_TextChanged(row);
         edit.GotFocus += (_, _) =>
@@ -307,6 +329,8 @@ public partial class NoteEditor : UserControl
 
     private void RemoveRow(Row row)
     {
+        row.Bitmap?.Dispose();
+        row.Bitmap = null;
         _rows.Remove(row);
         BlockHost.Children.Remove(row.Frame);
         if (_active == row) _active = null;
@@ -323,6 +347,7 @@ public partial class NoteEditor : UserControl
         BlockKind.Code => "Code block",
         BlockKind.Raw => "HTML block",
         BlockKind.Divider => "Divider",
+        BlockKind.Image => "Picture",
         _ => "Paragraph",
     };
 
@@ -394,7 +419,13 @@ public partial class NoteEditor : UserControl
 
         var divider = b.Kind == BlockKind.Divider;
         row.Rule.IsVisible = divider;
-        if (divider)
+        row.Picture.IsVisible = b.Kind == BlockKind.Image;
+        if (b.Kind == BlockKind.Image)
+        {
+            row.View.IsVisible = row.Edit.IsVisible = false;
+            ShowPicture(row);
+        }
+        else if (divider)
         {
             row.View.IsVisible = row.Edit.IsVisible = false;
         }
@@ -458,7 +489,7 @@ public partial class NoteEditor : UserControl
 
     private void FocusRow(Row row, int caret, int selectTo = -1)
     {
-        if (row.Block.Kind == BlockKind.Divider) return;
+        if (row.Block.IsAtomic) return;
         if (row.Block.HasMarkup)
         {
             row.Editing = true;
@@ -587,7 +618,7 @@ public partial class NoteEditor : UserControl
     private bool Move(Row row, int direction, bool atEnd)
     {
         var i = _rows.IndexOf(row) + direction;
-        while (i >= 0 && i < _rows.Count && _rows[i].Block.Kind == BlockKind.Divider) i += direction;
+        while (i >= 0 && i < _rows.Count && _rows[i].Block.IsAtomic) i += direction;
         if (i < 0 || i >= _rows.Count) return false;
         var target = _rows[i];
         FocusRow(target, atEnd ? target.Edit.Text?.Length ?? 0 : 0);
@@ -679,7 +710,7 @@ public partial class NoteEditor : UserControl
         var index = _rows.IndexOf(row);
         if (index <= 0) return false;
         var prev = _rows[index - 1];
-        if (prev.Block.Kind == BlockKind.Divider)
+        if (prev.Block.IsAtomic)
         {
             RemoveRow(prev);
             Changed?.Invoke();
@@ -707,7 +738,7 @@ public partial class NoteEditor : UserControl
         var index = _rows.IndexOf(row);
         if (index < 0 || index + 1 >= _rows.Count || !row.Block.HasMarkup && row.Block.Kind != BlockKind.Code) return false;
         var next = _rows[index + 1];
-        if (next.Block.Kind == BlockKind.Divider)
+        if (next.Block.IsAtomic)
         {
             RemoveRow(next);
             Changed?.Invoke();
@@ -814,16 +845,181 @@ public partial class NoteEditor : UserControl
         if (clipboard is null) return;
         e.Handled = true;
         string? text;
+        IEnumerable<IStorageItem>? files = null;
         try
         {
             text = await clipboard.GetTextAsync();
+            // text wins: Excel and browsers put a picture next to the text they copy
+            if (string.IsNullOrEmpty(text)) files = await clipboard.GetDataAsync(DataFormats.Files) as IEnumerable<IStorageItem>;
         }
         catch
         {
             return;
         }
-        if (string.IsNullOrEmpty(text) || !_rows.Contains(row)) return;
-        InsertPlain(row, text);
+        if (!_rows.Contains(row)) return;
+        if (!string.IsNullOrEmpty(text))
+        {
+            InsertPlain(row, text);
+            return;
+        }
+        var srcs = AddImageFiles(files);
+        if (srcs.Count == 0 && ClipboardImageService.TryGetImage() is { } image) srcs = AddImageBytes(image.Data, image.Extension);
+        if (srcs.Count > 0) InsertImages(srcs, CaptureSelection());
+    }
+
+    // ---- pictures ----------------------------------------------------------------------
+
+    /// <summary>Copies picture files into the notes' image folder; returns their srcs (non-pictures are skipped).</summary>
+    private List<string> AddImageFiles(IEnumerable<IStorageItem>? items)
+    {
+        var srcs = new List<string>();
+        foreach (var item in items ?? Enumerable.Empty<IStorageItem>())
+        {
+            if (item.TryGetLocalPath() is not { } path || !NotesService.IsImageFile(path)) continue;
+            try { srcs.Add(NotesService.AddImage(path)); }
+            catch (Exception ex) { PictureError?.Invoke("Could not add the picture: " + ex.Message); }
+        }
+        return srcs;
+    }
+
+    /// <summary>Saves pasted picture bytes; a BMP (what Windows offers for some screenshots) is stored as PNG.</summary>
+    private List<string> AddImageBytes(byte[] data, string extension)
+    {
+        try
+        {
+            if (extension == ".bmp")
+            {
+                using var bitmap = new Bitmap(new MemoryStream(data));
+                using var png = new MemoryStream();
+                bitmap.Save(png);
+                (data, extension) = (png.ToArray(), ".png");
+            }
+            return new List<string> { NotesService.AddImage(data, extension) };
+        }
+        catch (Exception ex)
+        {
+            PictureError?.Invoke("Could not paste the picture: " + ex.Message);
+            return new List<string>();
+        }
+    }
+
+    /// <summary>Raised when a picture could not be added (the message is for the status bar).</summary>
+    public event Action<string>? PictureError;
+
+    /// <summary>Adds picture blocks (srcs from <see cref="NotesService.AddImage(string)"/>) after the captured block,
+    /// or at the end, and puts the caret in a paragraph below them.</summary>
+    public void InsertImages(IReadOnlyList<string> srcs, EditorSelection? after = null)
+    {
+        if (srcs.Count == 0) return;
+        var index = after?.Block is Row r && _rows.Contains(r) ? _rows.IndexOf(r) + 1 : _rows.Count;
+        var emptyOnly = _rows.Count == 1 && _rows[0].Block.Kind == BlockKind.Paragraph && _rows[0].Block.Text.Length == 0 ? _rows[0] : null;
+        foreach (var src in srcs) AddRow(index++, NoteDocument.Image(src));
+        if (emptyOnly is not null)
+        {
+            RemoveRow(emptyOnly);
+            index--;
+        }
+        var next = index < _rows.Count && _rows[index].Block.Kind == BlockKind.Paragraph ? _rows[index] : AddRow(index, new NoteBlock());
+        RefreshLists();
+        FocusRow(next, 0);
+        Changed?.Invoke();
+    }
+
+    /// <summary>Loads the picture scaled down to at most 1600 px wide, so big screenshots don't hold a lot of memory.</summary>
+    private void ShowPicture(Row row)
+    {
+        row.Bitmap?.Dispose();
+        row.Bitmap = null;
+        var src = NoteDocument.ImageSrc(row.Block);
+        var file = NotesService.ResolveImage(src);
+        try
+        {
+            if (file is not null && File.Exists(file))
+            {
+                using (var stream = File.OpenRead(file)) row.Bitmap = new Bitmap(stream);
+                if (row.Bitmap.PixelSize.Width > 1600)
+                {
+                    row.Bitmap.Dispose();
+                    using var stream = File.OpenRead(file);
+                    row.Bitmap = Bitmap.DecodeToWidth(stream, 1600);
+                }
+            }
+        }
+        catch
+        {
+            row.Bitmap = null; // not a readable picture
+        }
+        row.Picture.Source = row.Bitmap;
+        row.Picture.IsVisible = row.Bitmap is not null;
+        if (row.Bitmap is null)
+        {
+            // a missing file or a web picture: show where it points instead
+            row.View.Inlines?.Clear();
+            row.View.Text = file is null ? $"[web picture: {src}]" : $"[picture not found: {src}]";
+            row.View.Foreground = Muted;
+            row.View.IsVisible = true;
+        }
+        ToolTip.SetTip(row.Picture, "Double-click to open · right-click for more");
+        AutomationProperties.SetName(row.Picture, "Picture " + Path.GetFileName(src));
+    }
+
+    private void DisposePictures()
+    {
+        foreach (var row in _rows)
+        {
+            row.Bitmap?.Dispose();
+            row.Bitmap = null;
+            row.Picture.Source = null;
+        }
+    }
+
+    private static void OpenPicture(Row row)
+    {
+        var file = NotesService.ResolveImage(NoteDocument.ImageSrc(row.Block));
+        if (file is null || !File.Exists(file)) return;
+        try
+        {
+            Process.Start(new ProcessStartInfo { FileName = file, UseShellExecute = true });
+        }
+        catch
+        {
+            // no app registered for the picture type
+        }
+    }
+
+    private ContextMenu PictureMenu(Row row)
+    {
+        var open = new MenuItem { Header = "Open picture" };
+        open.Click += (_, _) => OpenPicture(row);
+        var remove = new MenuItem { Header = "Remove picture from note" };
+        remove.Click += (_, _) =>
+        {
+            if (!_rows.Contains(row)) return;
+            var index = _rows.IndexOf(row);
+            RemoveRow(row);
+            RefreshLists();
+            var near = _rows.ElementAtOrDefault(Math.Min(index, _rows.Count - 1));
+            if (near is not null && !near.Block.IsAtomic) FocusRow(near, 0);
+            Changed?.Invoke();
+        };
+        return new ContextMenu { Items = { open, remove } };
+    }
+
+    private void OnDragOver(object? sender, DragEventArgs e)
+    {
+        e.DragEffects = e.Data.Contains(DataFormats.Files) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    /// <summary>Dropped picture files go below the block they were dropped on.</summary>
+    private void OnDrop(object? sender, DragEventArgs e)
+    {
+        e.Handled = true;
+        var srcs = AddImageFiles(e.Data.GetFiles());
+        if (srcs.Count == 0) return;
+        var y = e.GetPosition(BlockHost).Y;
+        var target = _rows.LastOrDefault(r => r.Frame.Bounds.Top <= y) ?? _rows.LastOrDefault();
+        InsertImages(srcs, target is null ? null : new EditorSelection(target, 0, 0, "", target.Block.Text));
     }
 
     /// <summary>Pastes text; each further line becomes its own block (list and heading prefixes are recognised).</summary>

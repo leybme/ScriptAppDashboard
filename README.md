@@ -39,9 +39,10 @@ Write notes the way you would in a word processor. Headings, **bold**, *italic*,
   - The arrow keys move between lines.
   - Pasting several lines creates one block per line, and list and heading prefixes are recognised.
 - **Links:** Ctrl+click a link to open it.
+- **Pictures:** paste a screenshot (Ctrl+V), drop picture files onto the note, or use the **🖼 Image** button. Pictures are shown in the note at full width; double-click one to open it, or right-click to remove it. They are kept as files in an `images` folder next to the notes, so notes stay small and sync quickly.
 - **Edit HTML:** notes are stored as clean HTML. **Edit HTML** shows the source; anything the visual editor can't represent, such as tables or styled elements, is kept as an HTML block.
 - **Search and tags:** search by title, tags or text. Ctrl+S saves, Ctrl+N starts a new note, Ctrl+F searches.
-- **Export:** export one note or all matching notes as Markdown, export a note as a standalone HTML file, or preview it in the browser.
+- **Export:** export one note or all matching notes as Markdown, export a note as a standalone HTML file (pictures embedded), or preview it in the browser.
 
 The paragraph being edited shows its formatting marks:
 
@@ -150,16 +151,25 @@ The pull request template in `.github/PULL_REQUEST_TEMPLATE.md` pre-fills every 
 
 ## Where your data lives
 
-- **Location:** settings, scripts, timers, notes and the work log are stored in:
+- **Settings folder (this PC):** settings and scripts are stored in:
   - `%APPDATA%\ScriptAppDashboard` on Windows,
   - `~/Library/Application Support/ScriptAppDashboard` on macOS.
+- **Data folder:** notes, pictures and the work log. By default it is the same folder. Settings → General shows both and has **Open** buttons.
+- **Files in the data folder:**
+  - `notes/<id>.json`: one file per note. Older versions kept every note in one `notes.json`; it is split up automatically the first time, and the old file is kept as `notes.json.migrated`.
+  - `images/`: pictures used in notes.
+  - `worklog/yyyy-MM-dd.jsonl`: the work log, one JSON object per line (`yyyy-MM-dd.<PC name>.jsonl` in a synced folder).
+  - `timers.json`: the interval timers, when you share them between PCs.
+- **Using another folder:** set the `SCRIPTAPPDASHBOARD_DATA` environment variable to keep the settings elsewhere, for a portable install or a demo.
 
-  Settings → General shows the folder and has an **Open folder** button.
-- **Files in that folder:**
-  - `config.json`: settings, scripts and timers.
-  - `notes.json`: notes.
-  - `worklog/yyyy-MM-dd.jsonl`: the work log, one JSON object per line.
-- **Using another folder:** set the `SCRIPTAPPDASHBOARD_DATA` environment variable to keep the data elsewhere, for a portable install or a demo.
+### Sync between PCs with OneDrive
+
+In **Settings → General**, press **Use OneDrive** (or **Choose folder…** for Dropbox, Google Drive or any synced folder) and **Save**. Your notes, pictures and work log are copied there and the app restarts. Do the same on your other PCs.
+
+- **Notes** are one file each, so two PCs only clash when both change the same note. Changes from another PC appear in the open notes window within seconds. If you were editing that same note, nothing is lost: the other version is kept as a separate "(conflicting copy)" note. A conflict copy made by OneDrive itself is handled the same way.
+- **The work log**: each PC writes its own files, and the Work Log window and AI reports add up the time from all of them.
+- **Settings and scripts** stay on each PC, because script paths differ between machines. Tick **Share the interval timers** to give every PC the same timers.
+- Window titles from the work log are then stored in your cloud folder. Leave the data folder on **Only this PC** if you don't want that.
 
 ## Notes
 

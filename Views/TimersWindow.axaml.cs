@@ -31,6 +31,7 @@ public partial class TimersWindow : Window
                                string.Join(" · ", AiService.Placeholders.Select(p => $"{p.Name} {p.Description}"));
         ApplyAiCommandHint();
         AppRef.SettingsChanged += ApplyAiCommandHint;
+        AppRef.TimersReloaded += OnTimersReloaded;
         DescribeBox.KeyDown += (_, e) =>
         {
             if (e.Key != Key.Enter) return;
@@ -48,6 +49,7 @@ public partial class TimersWindow : Window
             TimerService.Ran -= OnTimerRan;
             AppRef.TimersPauseChanged -= ApplyPause;
             AppRef.SettingsChanged -= ApplyAiCommandHint;
+            AppRef.TimersReloaded -= OnTimersReloaded;
             _countdown.Stop();
         };
     }
@@ -246,6 +248,14 @@ public partial class TimersWindow : Window
     }
 
     private void ApplyAiCommandHint() => AiCommandBox.Watermark = AiService.Command;
+
+    /// <summary>Another PC changed the shared timers; the editor keeps what is typed in it.</summary>
+    private void OnTimersReloaded()
+    {
+        _current = _current is null ? null : Config.Timers.FirstOrDefault(t => t.Id == _current.Id);
+        RefreshList(_current?.Id, keepEditor: true);
+        StatusText.Text = "Timers were updated from another PC.";
+    }
 
     private bool _describing;
 

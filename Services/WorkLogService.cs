@@ -32,7 +32,12 @@ public static class WorkLogService
     private static List<string> _lastScripts = new();
     private static int _sampling;
 
-    public static string LogDir => Path.Combine(ConfigService.ConfigDir, "worklog");
+    public static string LogDir => Path.Combine(ConfigService.DataDir, "worklog");
+
+    /// <summary>A day's file for this PC. In a synced data folder every PC writes its own file
+    /// ("2026-10-11.LAPTOP.jsonl"), so two PCs never append to the same file; reading merges them.</summary>
+    private static string DayFile(DateTime day)
+        => Path.Combine(LogDir, day.ToString("yyyy-MM-dd") + (ConfigService.IsSynced ? "." + Environment.MachineName : "") + ".jsonl");
 
     public static bool IsSupported => OperatingSystem.IsWindows();
 
@@ -75,7 +80,7 @@ public static class WorkLogService
             lock (Gate)
             {
                 Directory.CreateDirectory(LogDir);
-                var file = Path.Combine(LogDir, DateTime.Now.ToString("yyyy-MM-dd") + ".jsonl");
+                var file = DayFile(DateTime.Now);
                 File.AppendAllText(file, JsonSerializer.Serialize(entry, Json) + "\n", new UTF8Encoding(false));
             }
         }
@@ -117,8 +122,9 @@ public static class WorkLogService
             // sampling is best effort, but leave a trace so a silent failure can be diagnosed
             try
             {
-                Directory.CreateDirectory(LogDir);
-                File.AppendAllText(Path.Combine(LogDir, "errors.log"), $"{Now()} {ex}\n");
+                var local = Path.Combine(ConfigService.ConfigDir, "worklog"); // errors are about this PC: never synced
+                Directory.CreateDirectory(local);
+                File.AppendAllText(Path.Combine(local, "errors.log"), $"{Now()} {ex}\n");
             }
             catch { }
         }
@@ -188,40 +194,47 @@ public static class WorkLogService
         double OutsideWorkSeconds,
         string? WorkHoursFilter);
 
-    /// <summary>Every parsed log line between the two days (inclusive), with its timestamp. Malformed lines are skipped.</summary>
+    /// <summary>Every parsed log line between the two days (inclusive), with its timestamp, in time order across
+    /// every PC's file for the day. Malformed lines are skipped.</summary>
     private static IEnumerable<(DateTime Day, DateTime When, JsonElement Line)> ReadLines(DateTime fromDay, DateTime toDay)
     {
+        if (!Directory.Exists(LogDir)) yield break;
         for (var day = fromDay.Date; day <= toDay.Date; day = day.AddDays(1))
         {
-            var file = Path.Combine(LogDir, day.ToString("yyyy-MM-dd") + ".jsonl");
-            if (!File.Exists(file)) continue;
+            var files = Directory.GetFiles(LogDir, day.ToString("yyyy-MM-dd") + "*.jsonl");
+            var entries = files.SelectMany(f => ParseFile(f, day));
+            // one PC's file is already in time order; several must be merged
+            foreach (var entry in files.Length > 1 ? entries.OrderBy(x => x.When) : entries) yield return entry;
+        }
+    }
 
-            string[] lines;
+    private static IEnumerable<(DateTime Day, DateTime When, JsonElement Line)> ParseFile(string file, DateTime day)
+    {
+        string[] lines;
+        try
+        {
+            using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(fs, Encoding.UTF8);
+            lines = reader.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        }
+        catch { yield break; }
+
+        foreach (var line in lines)
+        {
+            JsonElement root;
+            DateTime when;
             try
             {
-                using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                using var reader = new StreamReader(fs, Encoding.UTF8);
-                lines = reader.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                using var doc = JsonDocument.Parse(line);
+                root = doc.RootElement.Clone();
+                when = DateTime.TryParse(root.GetProperty("t").GetString(), System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out var w) ? w : day;
             }
-            catch { continue; }
-
-            foreach (var line in lines)
+            catch
             {
-                JsonElement root;
-                DateTime when;
-                try
-                {
-                    using var doc = JsonDocument.Parse(line);
-                    root = doc.RootElement.Clone();
-                    when = DateTime.TryParse(root.GetProperty("t").GetString(), System.Globalization.CultureInfo.InvariantCulture,
-                        System.Globalization.DateTimeStyles.None, out var w) ? w : day;
-                }
-                catch
-                {
-                    continue; // partially written line
-                }
-                yield return (day, when, root);
+                continue; // partially written line
             }
+            yield return (day, when, root);
         }
     }
 
@@ -340,6 +353,26 @@ public static class WorkLogService
             .ThenByDescending(h => h.Last)
             .Take(max)
             .ToList();
+    }
+
+    /// <summary>Copies the work log into another data folder (when switching folders). A day file without a PC name
+    /// is given this PC's name, so it can sit next to other PCs' files. Existing files are left alone.</summary>
+    public static int CopyTo(string dataDir)
+    {
+        if (!Directory.Exists(LogDir)) return 0;
+        var target = Path.Combine(dataDir, "worklog");
+        Directory.CreateDirectory(target);
+        var copied = 0;
+        foreach (var file in Directory.GetFiles(LogDir, "????-??-??*.jsonl"))
+        {
+            var name = Path.GetFileName(file);
+            if (name.Length == "yyyy-MM-dd.jsonl".Length) name = name[..10] + "." + Environment.MachineName + ".jsonl";
+            var dest = Path.Combine(target, name);
+            if (File.Exists(dest)) continue;
+            File.Copy(file, dest);
+            copied++;
+        }
+        return copied;
     }
 
     /// <summary>The window in front right now (Windows only), e.g. for the AI's {current_app}.</summary>

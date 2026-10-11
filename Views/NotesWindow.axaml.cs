@@ -42,8 +42,110 @@ public partial class NotesWindow : Window
         ApplyTimeButton();
         var app =(App)Avalonia.Application.Current!;
         app.SettingsChanged += ApplyTimeButton;
-        Closed += (_, _) => app.SettingsChanged -= ApplyTimeButton;
+        Editor.PictureError += message => StatusText.Text = message;
+        NotesService.ExternalChange += OnExternalChange;
+        Closed += (_, _) =>
+        {
+            app.SettingsChanged -= ApplyTimeButton;
+            NotesService.ExternalChange -= OnExternalChange;
+        };
         RefreshList(null);
+    }
+
+    // ---- pictures and other PCs' changes ----------------------------------------------------
+
+    private async void Image_Click(object? sender, RoutedEventArgs e)
+    {
+        var selection = _codeView ? null : Editor.CaptureSelection();
+        var files = await StorageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
+        {
+            Title = "Insert pictures",
+            AllowMultiple = true,
+            FileTypeFilter = new[] { Avalonia.Platform.Storage.FilePickerFileTypes.ImageAll },
+        });
+        var srcs = new List<string>();
+        foreach (var file in files)
+        {
+            if (Avalonia.Platform.Storage.StorageProviderExtensions.TryGetLocalPath(file) is not { } path) continue;
+            try { srcs.Add(NotesService.AddImage(path)); }
+            catch (Exception ex) { StatusText.Text = "Could not add the picture: " + ex.Message; }
+        }
+        if (srcs.Count == 0) return;
+        if (!_codeView)
+        {
+            Editor.InsertImages(srcs, selection);
+            return;
+        }
+        var text = HtmlBox.Text ?? "";
+        var caret = Math.Clamp(HtmlBox.CaretIndex, 0, text.Length);
+        var html = string.Concat(srcs.Select(s => "\n" + NoteDocument.ToHtml(new[] { NoteDocument.Image(s) }))) + "\n";
+        HtmlBox.Text = text[..caret] + html + text[caret..];
+        HtmlBox.CaretIndex = caret + html.Length;
+    }
+
+    private void OnExternalChange(Guid id, NoteItem? changed)
+        => Avalonia.Threading.Dispatcher.UIThread.Post(() => ApplyExternalChange(id, changed));
+
+    /// <summary>Another PC (through the synced folder) added, changed or deleted a note. Unsaved edits here are never
+    /// thrown away: if both changed the open note, the other version is kept as a separate "conflicting copy".</summary>
+    private void ApplyExternalChange(Guid id, NoteItem? changed)
+    {
+        var existing = _notes.FirstOrDefault(n => n.Id == id);
+        var showing = _current is not null && _current.Id == id;
+        if (changed is null)
+        {
+            if (existing is null) return;
+            if (showing && _dirty)
+            {
+                StatusText.Text = "This note was deleted on another PC — saving keeps it.";
+                return;
+            }
+            _notes.Remove(existing);
+            if (showing)
+            {
+                _current = null;
+                LoadEditor(null);
+            }
+            RefreshList(_current?.Id);
+            return;
+        }
+
+        if (existing is null)
+        {
+            _notes.Add(changed);
+        }
+        else if (showing && _dirty)
+        {
+            var copy = new NoteItem
+            {
+                Title = (changed.Title.Length > 0 ? changed.Title : "Note") + " (conflicting copy)",
+                Tags = changed.Tags, Html = changed.Html, Created = changed.Created, Updated = changed.Updated,
+            };
+            try
+            {
+                NotesService.Save(copy);
+                _notes.Add(copy);
+                StatusText.Text = $"Changed on another PC too — their version is kept as “{copy.Title}”.";
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = "Changed on another PC too, and their version could not be kept: " + ex.Message;
+            }
+        }
+        else
+        {
+            existing.Title = changed.Title;
+            existing.Tags = changed.Tags;
+            existing.Html = changed.Html;
+            existing.Created = changed.Created;
+            existing.Updated = changed.Updated;
+            if (showing)
+            {
+                LoadEditor(existing);
+                StatusText.Text = $"Updated from another PC at {DateTime.Now:HH:mm}";
+            }
+        }
+        RefreshList(_current?.Id);
     }
 
     private void UpdateDirty()
@@ -373,7 +475,7 @@ public partial class NotesWindow : Window
 
         try
         {
-            NotesService.Save(_notes);
+            NotesService.Save(note);
             _baseline = Snapshot();
             _dirty = false;
             StatusText.Text = $"Saved {note.Updated:HH:mm:ss}";
@@ -397,9 +499,10 @@ public partial class NotesWindow : Window
         }
         if (!await Dialogs.Confirm(this, "Delete note", $"Delete “{_current.Title}”? This cannot be undone.", "Delete"))
             return;
-        _notes.RemoveAll(n => n.Id == _current.Id);
+        var deleted = _current;
+        _notes.RemoveAll(n => n.Id == deleted.Id);
         _current = null;
-        try { NotesService.Save(_notes); } catch (Exception ex) { StatusText.Text = "Could not save: " + ex.Message; }
+        try { NotesService.Delete(deleted, _notes); } catch (Exception ex) { StatusText.Text = "Could not delete: " + ex.Message; }
         LoadEditor(null);
         RefreshList(null);
     }
@@ -551,11 +654,10 @@ public partial class NotesWindow : Window
     private (int Start, int End, string Text)? _aiHtmlSelection;
     private bool _aiBusy;
 
-    /// <summary>Adds a note made elsewhere (AI answers, day summaries) to this window's list and saves it.</summary>
+    /// <summary>Shows a note saved elsewhere (AI answers, day summaries) in the list.</summary>
     public void AddNote(NoteItem note)
     {
-        _notes.Add(note);
-        NotesService.Save(_notes);
+        if (_notes.All(n => n.Id != note.Id)) _notes.Add(note);
         RefreshList(_current?.Id);
     }
 
@@ -568,7 +670,7 @@ public partial class NotesWindow : Window
         if (showing && (TitleBox.Text ?? "").Trim().Length > 0) return; // the user is typing a title
         note.Title = title;
         note.Tags = App.MergeTags(note.Tags, tags);
-        try { NotesService.Save(_notes); } catch { return; }
+        try { NotesService.Save(note); } catch { return; }
         if (showing)
         {
             var wasDirty = _dirty;

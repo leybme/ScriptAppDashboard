@@ -75,6 +75,12 @@ public class AppConfig
 
     /// <summary>End of the last working day that got a summary (so it is written once).</summary>
     public DateTime? AiDaySummaryLast { get; set; }
+
+    /// <summary>Folder for notes, images and the work log, e.g. in OneDrive to sync PCs; empty = the local settings folder.</summary>
+    public string DataFolder { get; set; } = "";
+
+    /// <summary>With a data folder: keep the interval timers there too (timers.json), so every PC has the same ones.</summary>
+    public bool SyncTimers { get; set; }
 }
 
 public class IntervalTimerItem

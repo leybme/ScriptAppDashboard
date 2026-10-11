@@ -20,12 +20,13 @@ dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 |---|---|
 | `App.axaml.cs` | Startup and the tray menu (`RefreshTrayMenu`). Opens every window as a single instance (`ShowNotes`, `ShowTimers`, `ShowWorkLog`, `ShowSettings`, `ShowSearch`, `ShowNote(id)`). Holds the app-wide events `SettingsChanged` / `TimersPauseChanged` and the timer pop-ups (`NotifyTimer`). |
 | `Models/ScriptItem.cs` | `ScriptItem`, `AppConfig` (all settings), `IntervalTimerItem`, `NoteItem`. |
-| `Services/ConfigService.cs` | Loads and saves `config.json` in `ConfigDir` (%APPDATA%\ScriptAppDashboard). |
+| `Services/ConfigService.cs` | Loads and saves `config.json` in `ConfigDir` (this PC). `DataDir` is the (possibly OneDrive-synced) folder for notes, images and the work log (`DataFolder` setting, else `ConfigDir`); `timers.json` there when `SyncTimers`. `AtomicWrite` (.tmp + move). |
 | `Services/LauncherService.cs`, `ProcessScanner.cs`, `StartupService.cs` | Launch scripts, scan running scripts/apps (`Scan`, `ScanApps`), auto-start. |
 | `Services/WorkLogService.cs` | Records work to daily JSONL files in `worklog/` and analyses them (`Summarize`, `Search`, `TodayActiveSeconds`, `ToMarkdown`). |
 | `Services/WorkHours.cs` | Working-hours rules (wraps past midnight for night shifts). |
 | `Services/TimerService.cs` | 1-second ticker that runs the timers (beep / shell command / AI CLI via stdin). Supports pause and resume (`TimersPausedUntil` in the config). |
-| `Services/NotesService.cs` | Reads and writes `notes.json`. Also holds search, `HtmlToMarkdown` / `ToMarkdown` / `ToHtml` (export). |
+| `Services/NotesService.cs` | One file per note (`Load`, `Save(note)`, `Delete`), migration from the old `notes.json`, conflict-copy adoption, `Watch` + `ExternalChange` for other PCs' edits, pictures (`AddImage`, `ResolveImage`, `MapImages`, `DeleteUnusedImages`). Also search, `HtmlToMarkdown` / `ToMarkdown` / `ToHtml` (export). |
+| `Services/ClipboardImageService.cs` | Reads a pasted picture: Win32 clipboard (`PNG` format, else `CF_DIB` → .bmp) or `osascript` on macOS. |
 | `Services/NoteDocument.cs` | Note body model for the visual editor: `Parse` (HTML, incl. old `• `/`1. `/`◷` plain lines → `NoteBlock`s), `ToHtml`, `ToMarkdown`, and the inline markup (`**b**`, `*i*`, `` `c` ``, `[t](u)`) ↔ HTML conversion. |
 | `Services/TimestampService.cs` | Timestamp formats: .NET date formats, or a template whose `{…}` parts are formatted (InvariantCulture). |
 | `Services/AiService.cs` | Runs the AI CLI (`AskAsync`, never throws): provider `claude` → `claude -p --model <AiModel>` (default `claude-haiku-5-5`), `custom` → `AiCommand`, `kiro` → not supported yet. Prompt on stdin (UTF-8), started in an empty temp folder. Also `{placeholder}` expansion, `ExtractJson`, `ExtractCode`, `StripOuterFence`. |
@@ -38,17 +39,20 @@ dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 
 ## Data files
 
-All under `%APPDATA%\ScriptAppDashboard`, or the folder in the `SCRIPTAPPDASHBOARD_DATA` environment variable:
+Settings live in `ConfigDir`: `%APPDATA%\ScriptAppDashboard`, or the folder in the `SCRIPTAPPDASHBOARD_DATA` environment variable.
+Notes, images and the work log live in `DataDir`: the `DataFolder` setting (e.g. a OneDrive folder shared by several PCs), else `ConfigDir`.
 
-- `config.json`: scripts, timers and settings.
-- `notes.json`: notes. The body is HTML; the visual editor writes one block per line (`<p>`, `<h1-6>`, `<ul>`/`<ol>`, `<ul class="timed">` with `<span class="t">stamp</span>`, `<blockquote>`, `<pre><code>`, `<hr>`). Written atomically via a `.tmp` file then a move; an unreadable file is first backed up as `.bad`.
-- `worklog/yyyy-MM-dd.jsonl`: one JSON object per line, UTF-8 without a BOM. The `k` field is:
+- `config.json` (ConfigDir): scripts, timers and settings.
+- `notes/<id>.json` (DataDir): one note per file, written atomically (.tmp + move). The body is HTML; the visual editor writes one block per line (`<p>`, `<h1-6>`, `<ul>`/`<ol>`, `<ul class="timed">` with `<span class="t">stamp</span>`, `<blockquote>`, `<pre><code>`, `<hr>`, and `<p><img src="images/…"></p>` for a picture). An old single `notes.json` is split up once and renamed `notes.json.migrated`.
+- `images/` (DataDir): pictures, referenced relative to DataDir (`images/20261011-093000-1a2b3c4d.png`).
+- `timers.json` (DataDir): the timers, only when `SyncTimers` is on.
+- `worklog/yyyy-MM-dd.jsonl` (DataDir; `yyyy-MM-dd.<MachineName>.jsonl` when synced): one JSON object per line, UTF-8 without a BOM. The `k` field is:
   - `s`: foreground sample (`app`, `title`, `sec`)
   - `o`: open windows + running scripts snapshot
   - `l`: launch from the dashboard
   - `t`: timer run
   - `n`: note created
-- `worklog/errors.log`: sampling exceptions.
+- `worklog/errors.log` (ConfigDir): sampling exceptions.
 
 ## Conventions
 
@@ -91,6 +95,12 @@ All under `%APPDATA%\ScriptAppDashboard`, or the folder in the `SCRIPTAPPDASHBOA
   - The notes AI menu captures the selection (`NoteEditor.CaptureSelection`) in the button's `Click` before showing the flyout; the flyout takes focus and the TextBox drops its selection.
   - Answers are Markdown; `NoteDocument.FromMarkdown` turns them into blocks (tables become Raw `<table>` blocks).
   - The end-of-day summary runs from a 1-minute timer in `App` (`AiDaySummaryLast` makes it once per working day).
+- **Sync (data folder):**
+  - Save notes one at a time with `NotesService.Save(note)`; never rewrite all notes, or two PCs overwrite each other.
+  - `NotesService` remembers what it wrote, so the watcher ignores our own saves. Files whose name isn't `<id>.json` (sync conflict copies) are adopted as a separate "(conflicting copy)" note, never dropped.
+  - The work log reads every PC's file for a day and sorts by time; each PC appends only to its own file.
+  - Changing the data folder copies notes, images and the work log there (`CopyTo`), then restarts the app (`App.Restart`).
+- **Pictures:** a picture on its own line is a `BlockKind.Image` block (`IsAtomic`, like a divider: the caret skips it, Backspace/Delete next to it remove it). The editor decodes at most 1600 px wide and disposes bitmaps on `Load` / row removal. Paste prefers text over a picture (Excel and browsers put both on the clipboard).
 - **Non-ASCII in .ps1 test scripts:** characters like `◷` and `•` get mangled in .ps1 files saved without a BOM. Build them with `[char]0x25F7`.
 
 ## Testing (no unit-test project)
@@ -109,5 +119,6 @@ All under `%APPDATA%\ScriptAppDashboard`, or the folder in the `SCRIPTAPPDASHBOA
   - Back up `config.json` before injecting test timers or settings, and restore it afterwards.
   - Remove only the test lines you added to today's `worklog/*.jsonl`; it also holds the user's real activity.
   - Delete test notes when you're done.
+- **Clipboard and screenshots in tests** fail when the Windows session is locked (`LogonUI` running, `GetForegroundWindow` = 0). The common file dialog exposes only panes to UIAutomation; type a path with `SendInput` + `KEYEVENTF_UNICODE` (it bypasses a Telex input method).
 - **AI in UI tests:** each call takes 5–20 s with Haiku. `AiResultWindow` dialogs are owned windows, so look for them among the owner's child windows too. Text typed with SendKeys can be rewritten by a Vietnamese (Telex) input method; set values with `ValuePattern` instead.
 - **Idle rule during tests:** automated tests produce no keyboard or mouse input, so after 5 min the work log records nothing. That is correct behaviour, not a bug.

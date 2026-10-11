@@ -7,11 +7,12 @@ using System.Text.RegularExpressions;
 
 namespace ScriptAppDashboard.Services;
 
-public enum BlockKind { Paragraph, Heading, Bullet, Number, Timed, Quote, Code, Divider, Raw }
+public enum BlockKind { Paragraph, Heading, Bullet, Number, Timed, Quote, Code, Divider, Raw, Image }
 
 /// <summary>
 /// One block of a note in the visual editor. <see cref="Text"/> is inline markup — **bold**, *italic*, `code`,
-/// [text](url) and simple inline HTML tags — except for Code (plain text) and Raw (HTML source kept as-is).
+/// [text](url) and simple inline HTML tags — except for Code (plain text), Raw (HTML source kept as-is)
+/// and Image (the &lt;img&gt; tag of a picture on its own line).
 /// </summary>
 public sealed class NoteBlock
 {
@@ -24,7 +25,10 @@ public sealed class NoteBlock
     public bool IsList => Kind is BlockKind.Bullet or BlockKind.Number or BlockKind.Timed;
 
     /// <summary>The text is rendered with formatting (rather than shown as source).</summary>
-    public bool HasMarkup => Kind is not (BlockKind.Code or BlockKind.Raw or BlockKind.Divider);
+    public bool HasMarkup => Kind is not (BlockKind.Code or BlockKind.Raw or BlockKind.Divider or BlockKind.Image);
+
+    /// <summary>A block without text to type in (a rule or a picture): the caret skips it.</summary>
+    public bool IsAtomic => Kind is BlockKind.Divider or BlockKind.Image;
 }
 
 /// <summary>A run of rendered inline text; <see cref="Source"/> is the markup index of each character.</summary>
@@ -93,7 +97,7 @@ public static class NoteDocument
             foreach (var line in LineSplit.Split(chunk))
             {
                 if (StripTags(line).Trim().Length == 0 && !line.Contains("<img", StringComparison.OrdinalIgnoreCase)) continue;
-                var block = ParseLine(line, fromHtml: true, markdown: false);
+                var block = AsImage(ParseLine(line, fromHtml: true, markdown: false));
                 if (quote && block.Kind == BlockKind.Paragraph) block.Kind = BlockKind.Quote;
                 output.Add(block);
             }
@@ -143,7 +147,7 @@ public static class NoteDocument
             {
                 if (BlockTag.IsMatch(inner)) ParseBlocks(inner, output, quote);
                 else if (name == "p" || StripTags(inner).Trim().Length > 0)
-                    output.Add(new NoteBlock { Kind = quote ? BlockKind.Quote : BlockKind.Paragraph, Text = InlineToMarkup(inner) });
+                    output.Add(AsImage(new NoteBlock { Kind = quote ? BlockKind.Quote : BlockKind.Paragraph, Text = InlineToMarkup(inner) }));
             }
             else if (name.Length == 2 && name[0] == 'h' && name[1] is >= '1' and <= '6')
             {
@@ -283,6 +287,11 @@ public static class NoteDocument
                 blocks.Add(new NoteBlock { Kind = BlockKind.Divider });
                 continue;
             }
+            if (MarkdownImage.Match(line) is { Success: true } img)
+            {
+                blocks.Add(Image(img.Groups[2].Value, img.Groups[1].Value));
+                continue;
+            }
             if (line.TrimStart().StartsWith('|') && i + 1 < lines.Length && TableSeparator.IsMatch(lines[i + 1]))
             {
                 var rows = new List<string> { line };
@@ -312,6 +321,27 @@ public static class NoteDocument
             sb.Append("</tr>\n");
         }
         return sb.Append("</table>").ToString();
+    }
+
+    private static readonly Regex LoneImage = new(@"^\s*(<img\b[^<>]*>)\s*$", Ci);
+    private static readonly Regex MarkdownImage = new(@"^\s*!\[([^\]]*)\]\(([^()\s]+)\)\s*$", RegexOptions.Compiled);
+
+    /// <summary>A paragraph holding nothing but one &lt;img&gt; is a picture block.</summary>
+    private static NoteBlock AsImage(NoteBlock block)
+    {
+        if (block.Kind != BlockKind.Paragraph || LoneImage.Match(block.Text) is not { Success: true } m) return block;
+        return new NoteBlock { Kind = BlockKind.Image, Text = m.Groups[1].Value };
+    }
+
+    /// <summary>A picture block for an image src ("images/x.png").</summary>
+    public static NoteBlock Image(string src, string alt = "")
+        => new() { Kind = BlockKind.Image, Text = $"<img src=\"{WebUtility.HtmlEncode(src)}\" alt=\"{WebUtility.HtmlEncode(alt)}\">" };
+
+    /// <summary>The src of a picture block's &lt;img&gt; tag.</summary>
+    public static string ImageSrc(NoteBlock block)
+    {
+        var m = Regex.Match(block.Text, @"\bsrc\s*=\s*([""'])(.*?)\1", RegexOptions.IgnoreCase);
+        return m.Success ? WebUtility.HtmlDecode(m.Groups[2].Value) : "";
     }
 
     private static (int Start, int End) FindClose(string s, string name, int from)
@@ -802,6 +832,9 @@ public static class NoteDocument
                     break;
                 case BlockKind.Divider:
                     sb.Append("<hr>\n");
+                    break;
+                case BlockKind.Image:
+                    sb.Append("<p>").Append(b.Text).Append("</p>\n");
                     break;
                 case BlockKind.Raw:
                     sb.Append(b.Text).Append('\n');

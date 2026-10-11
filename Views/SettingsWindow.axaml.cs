@@ -46,6 +46,9 @@ public partial class SettingsWindow : Window
         AiAutoTitleCheck.IsChecked = config.AiAutoTitle;
         AiDaySummaryCheck.IsChecked = config.AiDaySummary;
         ApplyAiHints();
+        _dataFolderDraft = config.DataFolder;
+        SyncTimersCheck.IsChecked = config.SyncTimers;
+        ApplyDataFolder();
 
         _previewTimer.Tick += (_, _) => UpdatePreview();
         _previewTimer.Start();
@@ -200,6 +203,110 @@ public partial class SettingsWindow : Window
         }
     }
 
+    // ---- data folder ---------------------------------------------------------------------
+
+    /// <summary>The data folder chosen on screen (applied on Save); "" = this PC's settings folder.</summary>
+    private string _dataFolderDraft = "";
+
+    private static bool SameFolder(string a, string b)
+    {
+        static string Norm(string p) => p.Length == 0 ? "" : Path.GetFullPath(p).TrimEnd('\\', '/');
+        try { return string.Equals(Norm(a), Norm(b), StringComparison.OrdinalIgnoreCase); }
+        catch { return a == b; }
+    }
+
+    /// <summary>The OneDrive folder on this PC (personal first), or null when OneDrive isn't set up.</summary>
+    private static string? OneDriveRoot()
+    {
+        if (OperatingSystem.IsWindows())
+            return new[] { "OneDriveConsumer", "OneDriveCommercial", "OneDrive" }
+                .Select(Environment.GetEnvironmentVariable)
+                .FirstOrDefault(d => !string.IsNullOrEmpty(d) && Directory.Exists(d));
+        var cloud = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "CloudStorage");
+        return Directory.Exists(cloud) ? Directory.GetDirectories(cloud, "OneDrive*").FirstOrDefault() : null;
+    }
+
+    private void ApplyDataFolder()
+    {
+        var local = _dataFolderDraft.Length == 0;
+        DataPathBox.Text = local ? ConfigService.ConfigDir + "   (this PC only)" : _dataFolderDraft;
+        SyncTimersCheck.IsEnabled = !local;
+        OneDriveButton.IsEnabled = OneDriveRoot() is not null;
+        if (!OneDriveButton.IsEnabled) ToolTip.SetTip(OneDriveButton, "OneDrive isn't set up on this PC");
+        var pending = !SameFolder(_dataFolderDraft, AppRef.Config.DataFolder);
+        DataFolderText.Text = pending
+            ? "Press Save to copy your notes, pictures and work log there and restart the app."
+            : ConfigService.DataDirError
+              ?? (local ? "Not synced." : $"Synced. This PC writes its work log as “{Environment.MachineName}”.");
+    }
+
+    private void UseOneDrive_Click(object? sender, RoutedEventArgs e)
+    {
+        if (OneDriveRoot() is not { } root) return;
+        _dataFolderDraft = Path.Combine(root, "ScriptAppDashboard");
+        ApplyDataFolder();
+    }
+
+    private async void ChooseDataFolder_Click(object? sender, RoutedEventArgs e)
+    {
+        var folders = await StorageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions
+        {
+            Title = "Folder for notes, pictures and the work log",
+        });
+        if (folders.Count == 0 || Avalonia.Platform.Storage.StorageProviderExtensions.TryGetLocalPath(folders[0]) is not { } path) return;
+        _dataFolderDraft = path;
+        ApplyDataFolder();
+    }
+
+    private void LocalDataFolder_Click(object? sender, RoutedEventArgs e)
+    {
+        _dataFolderDraft = "";
+        ApplyDataFolder();
+    }
+
+    private void OpenDataFolder_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Directory.CreateDirectory(ConfigService.DataDir);
+            Process.Start(new ProcessStartInfo { FileName = ConfigService.DataDir, UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Could not open the folder: " + ex.Message;
+        }
+    }
+
+    /// <summary>Copies the data to a newly chosen folder and switches to it; true when the app should restart.</summary>
+    private async Task<bool> ApplyDataFolderChangeAsync(Models.AppConfig config)
+    {
+        var syncTimers = SyncTimersCheck.IsChecked == true && _dataFolderDraft.Length > 0;
+        var folderChanged = !SameFolder(_dataFolderDraft, config.DataFolder);
+        if (!folderChanged && syncTimers == config.SyncTimers) return false;
+
+        var target = _dataFolderDraft.Length == 0 ? ConfigService.ConfigDir : _dataFolderDraft;
+        if (folderChanged)
+        {
+            StatusText.Text = "Copying your notes, pictures and work log…";
+            await Task.Run(() =>
+            {
+                Directory.CreateDirectory(target);
+                NotesService.CopyTo(target);
+                WorkLogService.CopyTo(target);
+            });
+            ConfigService.ApplyDataFolder(_dataFolderDraft);
+            if (ConfigService.DataDirError is { } error) throw new IOException(error);
+        }
+        if (syncTimers && ConfigService.LoadTimers() is { } shared)
+        {
+            // another PC already shares timers: keep theirs and add the ones only this PC has
+            config.Timers = shared.Concat(config.Timers.Where(t => shared.All(s => s.Id != t.Id))).ToList();
+        }
+        config.DataFolder = _dataFolderDraft;
+        config.SyncTimers = syncTimers;
+        return true;
+    }
+
     private void Close_Click(object? sender, RoutedEventArgs e) => Close();
 
     private async void Save_Click(object? sender, RoutedEventArgs e)
@@ -243,6 +350,18 @@ public partial class SettingsWindow : Window
         config.AiAutoTitle = AiAutoTitleCheck.IsChecked == true;
         config.AiDaySummary = AiDaySummaryCheck.IsChecked == true;
 
+        bool restart;
+        try
+        {
+            restart = await ApplyDataFolderChangeAsync(config);
+        }
+        catch (Exception ex)
+        {
+            ConfigService.ApplyDataFolder(config.DataFolder); // stay on the folder that worked
+            StatusText.Text = "Could not use that data folder: " + ex.Message;
+            return;
+        }
+
         try
         {
             AppRef.SaveConfig();
@@ -272,5 +391,9 @@ public partial class SettingsWindow : Window
             }
         }
         StatusText.Text = status;
+        if (!restart) return;
+        await Dialogs.Message(this, "Data folder changed",
+            $"Notes, pictures and the work log are now kept in:\n{ConfigService.DataDir}\n\nThe app restarts to finish the switch.");
+        AppRef.Restart();
     }
 }

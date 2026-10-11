@@ -65,6 +65,9 @@
         <Button Content="◷ Timed" ToolTip.Tip="Time bullets — every new item (Enter) is stamped with the current date and time" Click="Timed_Click"/>
         <Button x:Name="TimeButton" Content="🕒 Time" ToolTip.Tip="Insert the current time (format in Settings)"
                 Click="Time_Click"/>
+        <Button Content="🖼 Image" AutomationProperties.Name="Insert picture"
+                ToolTip.Tip="Insert pictures — or paste a screenshot (Ctrl+V), or drop picture files onto the note"
+                Click="Image_Click"/>
         <Button x:Name="AiButton" Content="✨ AI ▾" AutomationProperties.Name="AI"
                 ToolTip.Tip="AI: rewrite, shorten, fix or translate the selected text (or the whole note), continue writing, summarise, extract to-dos, make meeting minutes, suggest a title and tags"
                 Click="Ai_Click">

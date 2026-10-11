@@ -126,7 +126,9 @@ public partial class WorkLogWindow : Window
         ReportHost.Children.Clear();
         InfoText.Text = WorkLogService.IsSupported
             ? $"Sampled every {AppRef.Config.WorkLogSampleSeconds}s while you are active (idle after {AppRef.Config.WorkLogIdleMinutes} min). " +
-              $"Window titles are stored only on this machine in {WorkLogService.LogDir}."
+              (ConfigService.IsSynced
+                  ? $"Window titles are stored in your synced data folder ({WorkLogService.LogDir}); every PC that uses it adds its time here."
+                  : $"Window titles are stored only on this machine in {WorkLogService.LogDir}.")
             : "The work log records foreground windows via Win32, so it is only available on Windows. Launches, timers and notes are still logged.";
 
         var hours = WorkHoursCheck.IsChecked == true ? new WorkHours(AppRef.Config) : null;
