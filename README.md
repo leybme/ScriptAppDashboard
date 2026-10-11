@@ -179,6 +179,15 @@ In **Settings → General**, press **Use OneDrive** (or **Choose folder…** for
 - The process scan uses `Get-CimInstance Win32_Process` on Windows and `ps -axo pid,args` on macOS. It doesn't need elevated rights for your own processes.
 - Window-title logging uses Win32 APIs, so the work log records foreground windows on Windows only. The rest of the app works on both platforms.
 
+## License
+
+Script App Dashboard is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
+
+- **Free:** personal use, such as your own PC, hobby projects, study or testing. Charities, schools, public research and government bodies may use it for free too. You may change the code for these uses.
+- **Needs a commercial license:** using it in or for a company, or any other commercial use, including selling or reselling the app or a modified version of it.
+
+For a commercial license, contact [@leybme](https://github.com/leybme). The bundled third-party packages (Avalonia, Material.Icons.Avalonia and others) keep their own licenses.
+
 ## Author
 
 **Y Nguyen** ([@leybme](https://github.com/leybme))

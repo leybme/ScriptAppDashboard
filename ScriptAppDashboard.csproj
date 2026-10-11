@@ -9,10 +9,16 @@
     <AssemblyName>ScriptAppDashboard</AssemblyName>
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
     <Authors>Y Nguyen</Authors>
+    <Copyright>Copyright (c) 2026 Y Nguyen. PolyForm Noncommercial 1.0.0; commercial use needs a license.</Copyright>
   </PropertyGroup>
 
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- the license travels with every release zip, next to the executable -->
+    <None Include="LICENSE.md" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 
   <ItemGroup>
