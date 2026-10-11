@@ -40,9 +40,11 @@ Write notes the way you would in a word processor. Headings, **bold**, *italic*,
   - Pasting several lines creates one block per line, and list and heading prefixes are recognised.
 - **Links:** Ctrl+click a link to open it.
 - **Pictures:** paste a screenshot (Ctrl+V), drop picture files onto the note, or use the **🖼 Image** button. Pictures are shown in the note at full width; double-click one to open it, or right-click to remove it. They are kept as files in an `images` folder next to the notes, so notes stay small and sync quickly.
-- **Edit HTML:** notes are stored as clean HTML. **Edit HTML** shows the source; anything the visual editor can't represent, such as tables or styled elements, is kept as an HTML block.
+- **Tables:** the **▦ Table** button adds a table. Tab moves to the next cell (and adds a row at the end), Enter goes down a row, and right-clicking adds or removes rows and columns or turns the header row on or off. Cells take **bold**, *italic*, `code` and links like any other text. Pasting cells copied from Excel (or a Markdown table) makes a table; pasting them into a cell fills the table from there.
+- **Charts:** the **📊 Chart** button adds a bar, line or pie chart drawn from a small data table: labels in the first column, one series per column. **Edit data** shows the numbers, the type box switches between bar, line and pie, and hovering shows the values. Right-click a table → **Make a chart from this table**. AI answers can include charts too, as a ```` ```chart ```` block holding CSV or a Markdown table.
+- **Edit HTML:** notes are stored as clean HTML. **Edit HTML** shows the source; anything the visual editor can't represent, such as styled elements or tables with merged cells, is kept as an HTML block.
 - **Search and tags:** search by title, tags or text. Ctrl+S saves, Ctrl+N starts a new note, Ctrl+F searches.
-- **Export:** export one note or all matching notes as Markdown, export a note as a standalone HTML file (pictures embedded), or preview it in the browser.
+- **Export:** export one note or all matching notes as Markdown, export a note as a standalone HTML file (pictures and charts embedded, each chart with its data underneath), or preview it in the browser.
 
 The paragraph being edited shows its formatting marks:
 

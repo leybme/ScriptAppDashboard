@@ -494,8 +494,10 @@ public static class NotesService
               "</title><style>body{font-family:Segoe UI,system-ui,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem;line-height:1.5}" +
               "h1{border-bottom:1px solid #ccc;padding-bottom:.4em}ul.timed{list-style:none;padding-left:0}ul.timed .t{color:#777;font-variant-numeric:tabular-nums;margin-right:.4em}" +
               "blockquote{margin:0;padding-left:1em;border-left:3px solid #ccc;color:#555}pre{background:#f4f4f4;padding:.6em .8em;border-radius:4px;overflow:auto}" +
-              "code{font-family:Consolas,Menlo,monospace}img{max-width:100%;height:auto}</style></head><body>" +
-              heading + NoteDocument.ToHtml(NoteDocument.Parse(body)) + "</body></html>";
+              "code{font-family:Consolas,Menlo,monospace}img{max-width:100%;height:auto}" +
+              "table{border-collapse:collapse;margin:.6em 0}th,td{border:1px solid #ccc;padding:.3em .6em;text-align:left;vertical-align:top}th{background:#f4f4f4}" +
+              "figure.chart{margin:1.2em 0}figure.chart figcaption{font-weight:600;margin-bottom:.4em}figure.chart summary{color:#777;font-size:.9em;cursor:pointer}</style></head><body>" +
+              heading + NoteDocument.ToHtml(NoteDocument.Parse(body), b => ChartLayout.ToSvg(b)) + "</body></html>";
         }
         return MapImages(content, linkImages ? FileUrl : DataUrl);
     }

@@ -83,6 +83,29 @@ public partial class NotesWindow : Window
         HtmlBox.CaretIndex = caret + html.Length;
     }
 
+    private void Table_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_codeView) InsertHtmlBlock(NoteDocument.NewTable());
+        else Editor.InsertTable();
+    }
+
+    private void Chart_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_codeView) InsertHtmlBlock(NoteDocument.NewChart());
+        else Editor.InsertChart();
+    }
+
+    /// <summary>HTML source view: inserts a block's HTML at the caret, on lines of its own.</summary>
+    private void InsertHtmlBlock(NoteBlock block)
+    {
+        var text = HtmlBox.Text ?? "";
+        var caret = Math.Clamp(HtmlBox.CaretIndex, 0, text.Length);
+        var html = "\n" + NoteDocument.ToHtml(new[] { block }) + "\n";
+        HtmlBox.Text = text[..caret] + html + text[caret..];
+        HtmlBox.Focus();
+        HtmlBox.CaretIndex = caret + html.Length;
+    }
+
     private void OnExternalChange(Guid id, NoteItem? changed)
         => Avalonia.Threading.Dispatcher.UIThread.Post(() => ApplyExternalChange(id, changed));
 

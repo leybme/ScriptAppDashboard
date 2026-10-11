@@ -7,12 +7,13 @@ using System.Text.RegularExpressions;
 
 namespace ScriptAppDashboard.Services;
 
-public enum BlockKind { Paragraph, Heading, Bullet, Number, Timed, Quote, Code, Divider, Raw, Image }
+public enum BlockKind { Paragraph, Heading, Bullet, Number, Timed, Quote, Code, Divider, Raw, Image, Table, Chart }
 
 /// <summary>
 /// One block of a note in the visual editor. <see cref="Text"/> is inline markup — **bold**, *italic*, `code`,
 /// [text](url) and simple inline HTML tags — except for Code (plain text), Raw (HTML source kept as-is)
-/// and Image (the &lt;img&gt; tag of a picture on its own line).
+/// and Image (the &lt;img&gt; tag of a picture on its own line). A Table keeps its cells in <see cref="Cells"/>;
+/// a Chart draws its <see cref="Cells"/> and uses <see cref="Text"/> as its caption.
 /// </summary>
 public sealed class NoteBlock
 {
@@ -22,10 +23,23 @@ public sealed class NoteBlock
     public string Text { get; set; } = "";
     public string Stamp { get; set; } = "";
 
+    /// <summary>Table or chart cells, row by row, each one inline markup. A chart's first row names the series
+    /// and its first column holds the labels.</summary>
+    public List<List<string>> Cells { get; set; } = new();
+
+    /// <summary>A table's first row is a header row (a chart's always is).</summary>
+    public bool Header { get; set; } = true;
+
+    /// <summary>A chart's type: bar, line or pie.</summary>
+    public string ChartType { get; set; } = "bar";
+
     public bool IsList => Kind is BlockKind.Bullet or BlockKind.Number or BlockKind.Timed;
 
+    /// <summary>A table or a chart: shown with its own controls instead of one text box.</summary>
+    public bool IsGrid => Kind is BlockKind.Table or BlockKind.Chart;
+
     /// <summary>The text is rendered with formatting (rather than shown as source).</summary>
-    public bool HasMarkup => Kind is not (BlockKind.Code or BlockKind.Raw or BlockKind.Divider or BlockKind.Image);
+    public bool HasMarkup => Kind is not (BlockKind.Code or BlockKind.Raw or BlockKind.Divider or BlockKind.Image) && !IsGrid;
 
     /// <summary>A block without text to type in (a rule or a picture): the caret skips it.</summary>
     public bool IsAtomic => Kind is BlockKind.Divider or BlockKind.Image;
@@ -46,7 +60,7 @@ public static class NoteDocument
     private static readonly Regex BulletLine = new(@"^(\s*)[-*•]\s+(.*)$", RegexOptions.Compiled);
     private static readonly Regex HeadingLine = new(@"^(#{1,6})\s+(.*)$", RegexOptions.Compiled);
     private static readonly Regex QuoteLine = new(@"^>\s?(.*)$", RegexOptions.Compiled);
-    private static readonly Regex BlockTag = new(@"<(p|div|h[1-6]|ul|ol|li|pre|blockquote|table|hr|section|article)\b", Ci);
+    private static readonly Regex BlockTag = new(@"<(p|div|h[1-6]|ul|ol|li|pre|blockquote|table|figure|hr|section|article)\b", Ci);
     private static readonly Regex StampSpan = new(@"^\s*<span\b[^>]*\bclass\s*=\s*[""']?t[""']?[^>]*>(.*?)</span>\s*", Ci);
     private static readonly Regex RawInline = new(@"\G<(/?)(span|u|s|del|ins|mark|sub|sup|small|big|img|kbd|abbr|font|q|cite|time|var|samp|wbr|br)\b[^<>]*>", Ci);
     private static readonly Regex LinkAt = new(@"\G\[((?:\\.|[^\]\\])*)\]\(([^()\s]*)\)", RegexOptions.Compiled);
@@ -164,6 +178,14 @@ public static class NoteDocument
                 if (code.StartsWith('\n')) code = code[1..];
                 output.Add(new NoteBlock { Kind = BlockKind.Code, Text = code.TrimEnd('\n') });
             }
+            else if (name == "table" && ParseTable(m.Value, inner) is { } table)
+            {
+                output.Add(table);
+            }
+            else if (name == "figure" && ParseChart(m.Value, inner) is { } chart)
+            {
+                output.Add(chart);
+            }
             else if (name == "blockquote")
             {
                 if (BlockTag.IsMatch(inner)) ParseBlocks(inner, output, quote: true);
@@ -239,6 +261,94 @@ public static class NoteDocument
         Flush(inner.Length);
     }
 
+    private static readonly Regex BareTag = new(@"^<[a-zA-Z0-9]+\s*/?>$", RegexOptions.Compiled);
+
+    /// <summary>A plain table as a Table block: no attributes, no spans, header cells only in the first row and only
+    /// inline content in cells. Anything else returns null and stays a Raw block, so nothing is lost.</summary>
+    private static NoteBlock? ParseTable(string openTag, string inner)
+    {
+        if (!BareTag.IsMatch(openTag)) return null;
+        var rows = new List<List<string>>();
+        List<string>? row = null;
+        int cellStart = -1, pos = 0, firstTh = 0;
+        var cellTh = false;
+        var ok = true;
+
+        void EndCell(int end)
+        {
+            var content = inner[cellStart..end];
+            if (BlockTag.IsMatch(content)) ok = false;
+            row!.Add(InlineToMarkup(content));
+            if (cellTh && rows.Count > 1) ok = false; // a header cell further down
+            if (cellTh) firstTh++;
+            cellStart = -1;
+        }
+
+        for (var t = Tag.Match(inner); t.Success && ok; t = t.NextMatch())
+        {
+            if (t.Groups[2].Length == 0) return null; // a comment
+            var name = t.Groups[2].Value.ToLowerInvariant();
+            if (InlineTags.Contains(name))
+            {
+                if (cellStart < 0) return null;
+                continue;
+            }
+            if (name is not ("thead" or "tbody" or "tfoot" or "tr" or "th" or "td")) return null;
+            var close = t.Groups[1].Value == "/";
+            if (!close && !BareTag.IsMatch(t.Value)) return null; // colspan, class, …
+            if (cellStart < 0 && inner[pos..t.Index].Trim().Length > 0) return null; // text outside the cells
+            if (cellStart >= 0) EndCell(t.Index);
+            if (name is "th" or "td")
+            {
+                if (!close)
+                {
+                    if (row is null) rows.Add(row = new List<string>());
+                    cellStart = t.Index + t.Length;
+                    cellTh = name == "th";
+                }
+            }
+            else
+            {
+                row = null;
+                if (name == "tr" && !close) rows.Add(row = new List<string>());
+            }
+            pos = t.Index + t.Length;
+        }
+        if (ok && cellStart >= 0) EndCell(inner.Length);
+        else if (inner[pos..].Trim().Length > 0) return null;
+        rows.RemoveAll(r => r.Count == 0);
+        if (!ok || rows.Count == 0 || firstTh > 0 && firstTh != rows[0].Count) return null; // a mixed first row
+        var columns = rows.Max(r => r.Count);
+        foreach (var r in rows) while (r.Count < columns) r.Add("");
+        return new NoteBlock { Kind = BlockKind.Table, Cells = rows, Header = firstTh > 0 };
+    }
+
+    private static readonly Regex ChartBody = new(@"^\s*(?:<figcaption>(.*?)</figcaption>)?\s*(<table\b[^>]*>)(.*)</table>\s*$", Ci);
+
+    /// <summary>A &lt;figure class="chart" data-type="…"&gt; holding an optional caption and a plain table.</summary>
+    private static NoteBlock? ParseChart(string openTag, string inner)
+    {
+        var cls = AttrValue(openTag, "class");
+        var type = AttrValue(openTag, "data-type") ?? "bar";
+        var rest = Regex.Replace(openTag, @"\s(class|data-type)\s*=\s*(""[^""]*""|'[^']*'|[^\s>]+)", "", RegexOptions.IgnoreCase);
+        if (cls != "chart" || !BareTag.IsMatch(rest)) return null;
+        var m = ChartBody.Match(inner);
+        if (!m.Success || BlockTag.IsMatch(m.Groups[1].Value)) return null;
+        if (ParseTable(m.Groups[2].Value, m.Groups[3].Value) is not { Header: true } table) return null;
+        table.Kind = BlockKind.Chart;
+        table.ChartType = ChartTypeName(type);
+        table.Text = InlineToMarkup(m.Groups[1].Value);
+        return table;
+    }
+
+    /// <summary>bar, line or pie (anything else is bar).</summary>
+    public static string ChartTypeName(string? type) => type?.Trim().ToLowerInvariant() switch
+    {
+        "line" => "line",
+        "pie" or "donut" => "pie",
+        _ => "bar",
+    };
+
     /// <summary>
     /// One line of text as a block. "• x", "- x", "1. x" and "◷ time · x" become list items;
     /// with <paramref name="markdown"/> also "# x" (heading) and "> x" (quote).
@@ -266,7 +376,7 @@ public static class NoteDocument
     private static readonly Regex Rule = new(@"^\s*([-*_])(\s*\1){2,}\s*$", RegexOptions.Compiled);
     private static readonly Regex TableSeparator = new(@"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$", RegexOptions.Compiled);
 
-    /// <summary>Markdown (e.g. an AI answer) as blocks: headings, lists, quotes, ``` code, --- rules; tables become HTML blocks.</summary>
+    /// <summary>Markdown (e.g. an AI answer) as blocks: headings, lists, quotes, ``` code, --- rules, tables, and ```chart fences.</summary>
     public static List<NoteBlock> FromMarkdown(string? markdown)
     {
         var blocks = new List<NoteBlock>();
@@ -276,9 +386,13 @@ public static class NoteDocument
             var line = lines[i];
             if (Fence.IsMatch(line))
             {
+                var info = line.Trim()[3..].Trim();
                 var code = new List<string>();
                 while (++i < lines.Length && !Fence.IsMatch(lines[i])) code.Add(lines[i]);
-                blocks.Add(new NoteBlock { Kind = BlockKind.Code, Text = string.Join("\n", code) });
+                var chart = Regex.Match(info, @"^chart\b\s*(\w*)", RegexOptions.IgnoreCase);
+                blocks.Add(chart.Success && ChartFromLines(code, chart.Groups[1].Value) is { } c
+                    ? c
+                    : new NoteBlock { Kind = BlockKind.Code, Text = string.Join("\n", code) });
                 continue;
             }
             if (line.Trim().Length == 0) continue;
@@ -297,7 +411,7 @@ public static class NoteDocument
                 var rows = new List<string> { line };
                 i++; // the separator
                 while (i + 1 < lines.Length && lines[i + 1].TrimStart().StartsWith('|')) rows.Add(lines[++i]);
-                blocks.Add(new NoteBlock { Kind = BlockKind.Raw, Text = TableHtml(rows) });
+                blocks.Add(new NoteBlock { Kind = BlockKind.Table, Cells = PadRows(rows.Select(PipeCells)) });
                 continue;
             }
             var block = ParseLine(line, fromHtml: false, markdown: true);
@@ -308,20 +422,136 @@ public static class NoteDocument
         return blocks;
     }
 
-    private static string TableHtml(List<string> rows)
+    /// <summary>The cells of a Markdown table row ("| a | b |"); "\|" is a literal bar.</summary>
+    private static List<string> PipeCells(string row)
     {
-        static string[] Cells(string row) => row.Trim().Trim('|').Split('|').Select(c => MarkupToHtml(c.Trim())).ToArray();
-        var sb = new StringBuilder("<table>\n<tr>");
-        foreach (var cell in Cells(rows[0])) sb.Append("<th>").Append(cell).Append("</th>");
-        sb.Append("</tr>\n");
-        foreach (var row in rows.Skip(1))
-        {
-            sb.Append("<tr>");
-            foreach (var cell in Cells(row)) sb.Append("<td>").Append(cell).Append("</td>");
-            sb.Append("</tr>\n");
-        }
-        return sb.Append("</table>").ToString();
+        var s = row.Trim();
+        if (s.StartsWith('|')) s = s[1..];
+        if (s.EndsWith('|') && !s.EndsWith("\\|")) s = s[..^1];
+        return Regex.Split(s, @"(?<!\\)\|").Select(c => c.Trim().Replace("\\|", "|")).ToList();
     }
+
+    /// <summary>Rows padded with empty cells to the widest one.</summary>
+    private static List<List<string>> PadRows(IEnumerable<List<string>> rows)
+    {
+        var list = rows.ToList();
+        var columns = list.Count == 0 ? 0 : list.Max(r => r.Count);
+        foreach (var r in list) while (r.Count < columns) r.Add("");
+        return list;
+    }
+
+    /// <summary>
+    /// Delimited text as rows of cells: quoted fields may hold the separator, line breaks and "" (as Excel copies them).
+    /// </summary>
+    public static List<List<string>> ParseDelimited(string text, char separator)
+    {
+        var rows = new List<List<string>>();
+        var row = new List<string>();
+        var cell = new StringBuilder();
+        var quoted = false;
+        var s = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        for (var i = 0; i < s.Length; i++)
+        {
+            var c = s[i];
+            if (quoted)
+            {
+                if (c == '"' && i + 1 < s.Length && s[i + 1] == '"') { cell.Append('"'); i++; }
+                else if (c == '"') quoted = false;
+                else cell.Append(c);
+            }
+            else if (c == '"' && cell.Length == 0) quoted = true;
+            else if (c == separator) { row.Add(cell.ToString()); cell.Clear(); }
+            else if (c == '\n') { row.Add(cell.ToString()); cell.Clear(); rows.Add(row); row = new List<string>(); }
+            else cell.Append(c);
+        }
+        row.Add(cell.ToString());
+        rows.Add(row);
+        return rows;
+    }
+
+    /// <summary>
+    /// Cells for pasted text that is a grid: spreadsheet cells (every line has the same number of tabs) or a Markdown
+    /// table. Null for anything else.
+    /// </summary>
+    public static List<List<string>>? GridFromText(string text)
+    {
+        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Trim('\n').Split('\n');
+        if (lines.Length < 2) return null;
+        if (lines.All(l => l.TrimStart().StartsWith('|')) && TableSeparator.IsMatch(lines[1]))
+            return PadRows(lines.Where((_, i) => i != 1).Select(PipeCells));
+        var rows = ParseDelimited(text.Trim('\r', '\n'), '\t');
+        if (rows.Count < 2 || rows[0].Count < 2 || rows.Any(r => r.Count != rows[0].Count)) return null;
+        return rows.Select(r => r.Select(c => c.Trim()).ToList()).ToList();
+    }
+
+    /// <summary>
+    /// A chart from the lines of a ```chart fence: optional "title: …" and "type: …" lines, then the data as a
+    /// Markdown table or as comma, semicolon or tab separated lines (labels first, a header row naming the series).
+    /// </summary>
+    private static NoteBlock? ChartFromLines(List<string> lines, string type)
+    {
+        var title = "";
+        var data = new List<string>();
+        foreach (var line in lines)
+        {
+            var key = Regex.Match(line, @"^\s*(title|type)\s*:\s*(.*)$", RegexOptions.IgnoreCase);
+            if (key.Success && data.Count == 0)
+            {
+                if (key.Groups[1].Value.Equals("title", StringComparison.OrdinalIgnoreCase)) title = key.Groups[2].Value.Trim();
+                else type = key.Groups[2].Value;
+            }
+            else if (line.Trim().Length > 0 && !TableSeparator.IsMatch(line))
+            {
+                data.Add(line);
+            }
+        }
+        if (data.Count < 2) return null;
+        List<List<string>> cells;
+        if (data.All(l => l.TrimStart().StartsWith('|')))
+        {
+            cells = PadRows(data.Select(PipeCells));
+        }
+        else
+        {
+            var separator = data[0].Contains('\t') ? '\t' : data[0].Contains(';') ? ';' : ',';
+            cells = PadRows(ParseDelimited(string.Join("\n", data), separator).Select(r => r.Select(c => c.Trim()).ToList()));
+        }
+        if (cells[0].Count < 2) return null;
+        return new NoteBlock { Kind = BlockKind.Chart, ChartType = ChartTypeName(type), Text = title, Cells = cells };
+    }
+
+    /// <summary>An empty table to start from: a header row and two rows.</summary>
+    public static NoteBlock NewTable(int rows = 3, int columns = 3) => new()
+    {
+        Kind = BlockKind.Table,
+        Cells = Enumerable.Range(0, rows).Select(_ => Enumerable.Repeat("", columns).ToList()).ToList(),
+    };
+
+    /// <summary>A chart with sample data to overwrite.</summary>
+    public static NoteBlock NewChart() => new()
+    {
+        Kind = BlockKind.Chart,
+        Cells = new List<List<string>>
+        {
+            new() { "Month", "Series 1" },
+            new() { "Jan", "12" },
+            new() { "Feb", "19" },
+            new() { "Mar", "8" },
+            new() { "Apr", "15" },
+        },
+    };
+
+    /// <summary>A chart of a table's data (a table without a header row gets one).</summary>
+    public static NoteBlock ChartFromTable(NoteBlock table)
+    {
+        var cells = table.Cells.Select(r => r.ToList()).ToList();
+        if (!table.Header && cells.Count > 0)
+            cells.Insert(0, cells[0].Select((_, i) => i == 0 ? "" : $"Series {i}").ToList());
+        return new NoteBlock { Kind = BlockKind.Chart, Cells = cells };
+    }
+
+    /// <summary>The visible text of inline markup.</summary>
+    public static string PlainText(string markup) => string.Concat(ParseInline(markup).Select(s => s.Text));
 
     private static readonly Regex LoneImage = new(@"^\s*(<img\b[^<>]*>)\s*$", Ci);
     private static readonly Regex MarkdownImage = new(@"^\s*!\[([^\]]*)\]\(([^()\s]+)\)\s*$", RegexOptions.Compiled);
@@ -787,8 +1017,25 @@ public static class NoteDocument
         return last;
     }
 
-    /// <summary>Blocks as clean HTML, one block per line. Trailing empty paragraphs are dropped.</summary>
-    public static string ToHtml(IReadOnlyList<NoteBlock> blocks)
+    /// <summary>A table's cells as HTML, one row per line.</summary>
+    private static string TableHtml(List<List<string>> cells, bool header)
+    {
+        var sb = new StringBuilder("<table>\n");
+        for (var r = 0; r < cells.Count; r++)
+        {
+            var tag = r == 0 && header ? "th" : "td";
+            sb.Append("<tr>");
+            foreach (var cell in cells[r]) sb.Append('<').Append(tag).Append('>').Append(MarkupToHtml(cell)).Append("</").Append(tag).Append('>');
+            sb.Append("</tr>\n");
+        }
+        return sb.Append("</table>").ToString();
+    }
+
+    /// <summary>
+    /// Blocks as clean HTML, one block per line. Trailing empty paragraphs are dropped. With <paramref name="chartImage"/>
+    /// (for export) a chart also gets that picture (an &lt;svg&gt;) and its table folds away under "Data".
+    /// </summary>
+    public static string ToHtml(IReadOnlyList<NoteBlock> blocks, Func<NoteBlock, string>? chartImage = null)
     {
         var sb = new StringBuilder();
         var lists = new List<string>(); // open list tags, outermost first
@@ -838,6 +1085,23 @@ public static class NoteDocument
                     break;
                 case BlockKind.Raw:
                     sb.Append(b.Text).Append('\n');
+                    break;
+                case BlockKind.Table:
+                    if (b.Cells.Count > 0) sb.Append(TableHtml(b.Cells, b.Header)).Append('\n');
+                    break;
+                case BlockKind.Chart:
+                    sb.Append("<figure class=\"chart\" data-type=\"").Append(ChartTypeName(b.ChartType)).Append("\">\n");
+                    if (b.Text.Trim().Length > 0) sb.Append("<figcaption>").Append(MarkupToHtml(b.Text.Trim())).Append("</figcaption>\n");
+                    if (chartImage is null)
+                    {
+                        sb.Append(TableHtml(b.Cells, header: true)).Append('\n');
+                    }
+                    else
+                    {
+                        sb.Append(chartImage(b)).Append('\n');
+                        sb.Append("<details><summary>Data</summary>\n").Append(TableHtml(b.Cells, header: true)).Append("\n</details>\n");
+                    }
+                    sb.Append("</figure>\n");
                     break;
                 default:
                     var open = b.Kind switch { BlockKind.Number => "<ol>", BlockKind.Timed => "<ul class=\"timed\">", _ => "<ul>" };
@@ -897,11 +1161,30 @@ public static class NoteDocument
                 case BlockKind.Code: sb.Append("```\n").Append(b.Text).Append("\n```"); break;
                 case BlockKind.Divider: sb.Append("---"); break;
                 case BlockKind.Raw: sb.Append(rawHtml(b.Text)); break;
+                case BlockKind.Table: sb.Append(TableMarkdown(b.Cells, b.Header)); break;
+                case BlockKind.Chart:
+                    sb.Append("**").Append(text.Trim().Length > 0 ? text.Trim() : "Chart").Append("** (")
+                      .Append(ChartTypeName(b.ChartType)).Append(" chart)\n\n").Append(TableMarkdown(b.Cells, header: true));
+                    break;
                 default: sb.Append(text); break;
             }
             prev = b;
         }
         return sb.ToString().Trim();
+    }
+
+    /// <summary>A Markdown table; a table without a header row gets an empty one (Markdown needs it).</summary>
+    private static string TableMarkdown(List<List<string>> cells, bool header)
+    {
+        if (cells.Count == 0) return "";
+        static string Cell(string markup) => MarkupToMarkdown(markup).Replace("|", "\\|").Replace("\n", "<br>").Trim();
+        static string Line(IEnumerable<string> row) => "| " + string.Join(" | ", row) + " |";
+        var columns = cells[0].Count;
+        var sb = new StringBuilder();
+        sb.Append(Line(header ? cells[0].Select(Cell) : Enumerable.Repeat("", columns))).Append('\n');
+        sb.Append(Line(Enumerable.Repeat("---", columns)));
+        foreach (var row in cells.Skip(header ? 1 : 0)) sb.Append('\n').Append(Line(row.Select(Cell)));
+        return sb.ToString();
     }
 
     /// <summary>Markup is already Markdown-like; only the inline HTML tags need converting.</summary>

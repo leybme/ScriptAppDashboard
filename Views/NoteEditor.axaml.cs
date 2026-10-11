@@ -38,6 +38,8 @@ public partial class NoteEditor : UserControl
         public required TextBox Edit;
         public required Border Rule;
         public required Image Picture;
+        public required Panel Content;
+        public GridBlockView? Grid;
         public Bitmap? Bitmap;
         public List<InlineSpan> Spans = new();
         public bool Editing;
@@ -46,9 +48,9 @@ public partial class NoteEditor : UserControl
     private readonly List<Row> _rows = new();
     private Row? _active;
 
-    private static readonly IBrush Muted = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88));
-    private static readonly IBrush CodeBack = new SolidColorBrush(Color.FromArgb(0x26, 0x80, 0x80, 0x80));
-    private static readonly IBrush Line = new SolidColorBrush(Color.FromArgb(0x90, 0x80, 0x80, 0x80));
+    internal static readonly IBrush Muted = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88));
+    internal static readonly IBrush CodeBack = new SolidColorBrush(Color.FromArgb(0x26, 0x80, 0x80, 0x80));
+    internal static readonly IBrush Line = new SolidColorBrush(Color.FromArgb(0x90, 0x80, 0x80, 0x80));
     private static readonly IBrush LinkBrush = new SolidColorBrush(Color.Parse("#3B82F6"));
     private static readonly FontFamily Mono = new("Consolas,Menlo,monospace");
     private static readonly string[] Bullets = { "•", "◦", "▪" };
@@ -98,10 +100,9 @@ public partial class NoteEditor : UserControl
     /// <summary>Wraps the selection in an emphasis marker (or removes it), or inserts a placeholder.</summary>
     public void ToggleInline(string marker, string placeholder)
     {
-        var row = ActiveRow();
-        if (row is null || !row.Block.HasMarkup) return;
-        var text = row.Edit.Text ?? "";
-        var (s, e) = Selection(row.Edit);
+        if (ActiveTarget() is not { Markup: true } target) return;
+        var text = target.Box.Text ?? "";
+        var (s, e) = Selection(target.Box);
         var ch = marker[0];
         int before = 0, after = 0;
         while (s - before > 0 && text[s - before - 1] == ch) before++;
@@ -110,14 +111,14 @@ public partial class NoteEditor : UserControl
         var on = marker.Length == 2 ? before >= 2 && after >= 2 : before % 2 == 1 && after % 2 == 1;
         if (s < e && on)
         {
-            SetText(row, text[..(s - marker.Length)] + text[s..e] + text[(e + marker.Length)..]);
-            FocusRow(row, s - marker.Length, e - marker.Length);
+            target.Set(text[..(s - marker.Length)] + text[s..e] + text[(e + marker.Length)..]);
+            target.Select(s - marker.Length, e - marker.Length);
         }
         else
         {
             var inner = s < e ? text[s..e] : placeholder;
-            SetText(row, text[..s] + marker + inner + marker + text[e..]);
-            FocusRow(row, s + marker.Length, s + marker.Length + inner.Length);
+            target.Set(text[..s] + marker + inner + marker + text[e..]);
+            target.Select(s + marker.Length, s + marker.Length + inner.Length);
         }
         Changed?.Invoke();
     }
@@ -125,23 +126,22 @@ public partial class NoteEditor : UserControl
     /// <summary>Turns the selection into a link and selects the address (or inserts a sample link).</summary>
     public void InsertLink()
     {
-        var row = ActiveRow();
-        if (row is null || !row.Block.HasMarkup) return;
-        var text = row.Edit.Text ?? "";
-        var (s, e) = Selection(row.Edit);
+        if (ActiveTarget() is not { Markup: true } target) return;
+        var text = target.Box.Text ?? "";
+        var (s, e) = Selection(target.Box);
         const string url = "https://";
         if (s < e)
         {
             var label = text[s..e];
-            SetText(row, text[..s] + "[" + label + "](" + url + ")" + text[e..]);
+            target.Set(text[..s] + "[" + label + "](" + url + ")" + text[e..]);
             var at = s + label.Length + 3;
-            FocusRow(row, at, at + url.Length);
+            target.Select(at, at + url.Length);
         }
         else
         {
             const string label = "link text";
-            SetText(row, text[..s] + "[" + label + "](" + url + ")" + text[e..]);
-            FocusRow(row, s + 1, s + 1 + label.Length);
+            target.Set(text[..s] + "[" + label + "](" + url + ")" + text[e..]);
+            target.Select(s + 1, s + 1 + label.Length);
         }
         Changed?.Invoke();
     }
@@ -150,7 +150,7 @@ public partial class NoteEditor : UserControl
     public void ToggleBlock(BlockKind kind)
     {
         var row = ActiveRow();
-        if (row is null || row.Block.Kind == BlockKind.Raw) return;
+        if (row is null || row.Block.Kind == BlockKind.Raw || row.Block.IsGrid) return;
         ChangeKind(row, row.Block.Kind == kind ? BlockKind.Paragraph : kind);
     }
 
@@ -158,7 +158,7 @@ public partial class NoteEditor : UserControl
     public void CycleHeading()
     {
         var row = ActiveRow();
-        if (row is null || row.Block.Kind == BlockKind.Raw) return;
+        if (row is null || row.Block.Kind == BlockKind.Raw || row.Block.IsGrid) return;
         var b = row.Block;
         if (b.Kind != BlockKind.Heading) ChangeKind(row, BlockKind.Heading, 1);
         else if (b.Level < 3) ChangeKind(row, BlockKind.Heading, b.Level + 1);
@@ -168,22 +168,40 @@ public partial class NoteEditor : UserControl
     /// <summary>Inline code for a selection; otherwise toggles a code block.</summary>
     public void CodeButton()
     {
-        var row = ActiveRow();
-        if (row is null) return;
-        var (s, e) = Selection(row.Edit);
-        if (s < e && row.Block.HasMarkup) ToggleInline("`", "code");
+        if (ActiveTarget() is not { } target) return;
+        var (s, e) = Selection(target.Box);
+        if (s < e && target.Markup) ToggleInline("`", "code");
         else ToggleBlock(BlockKind.Code);
     }
 
     /// <summary>Types <paramref name="text"/> at the caret, replacing any selection.</summary>
     public void InsertText(string text)
     {
-        var row = ActiveRow();
-        if (row is null) return;
-        var current = row.Edit.Text ?? "";
-        var (s, e) = Selection(row.Edit);
-        SetText(row, current[..s] + text + current[e..]);
-        FocusRow(row, s + text.Length);
+        if (ActiveTarget() is not { } target) return;
+        var current = target.Box.Text ?? "";
+        var (s, e) = Selection(target.Box);
+        target.Set(current[..s] + text + current[e..]);
+        target.Select(s + text.Length, s + text.Length);
+        Changed?.Invoke();
+    }
+
+    /// <summary>Adds an empty table below the current block and puts the caret in its first cell.</summary>
+    public void InsertTable() => InsertGrid(NoteDocument.NewTable());
+
+    /// <summary>Adds a chart with sample data below the current block, with its data shown for editing.</summary>
+    public void InsertChart() => InsertGrid(NoteDocument.NewChart());
+
+    /// <summary>Adds a table or chart after the current block (in place of an empty paragraph), with a paragraph below it.</summary>
+    private void InsertGrid(NoteBlock block)
+    {
+        var current = _active is not null && _rows.Contains(_active) ? _active : null;
+        var index = current is null ? _rows.Count : _rows.IndexOf(current) + 1;
+        var row = AddRow(index, block, showData: true);
+        if (current is { Block: { Kind: BlockKind.Paragraph, Text.Length: 0 } }) RemoveRow(current);
+        var i = _rows.IndexOf(row);
+        if (i == _rows.Count - 1 || _rows[i + 1].Block.IsGrid) AddRow(i + 1, new NoteBlock());
+        RefreshLists();
+        FocusRow(row, 0);
         Changed?.Invoke();
     }
 
@@ -194,6 +212,7 @@ public partial class NoteEditor : UserControl
     public EditorSelection? CaptureSelection()
     {
         if (_active is not { } row || !_rows.Contains(row) || row.Block.IsAtomic) return null;
+        if (row.Block.IsGrid) return new EditorSelection(row, 0, 0, "", "");
         var text = row.Edit.Text ?? "";
         var (s, e) = row.Editing ? Selection(row.Edit) : (text.Length, text.Length);
         return new EditorSelection(row, s, e, text[s..e], text);
@@ -243,7 +262,16 @@ public partial class NoteEditor : UserControl
     private Row? ActiveRow()
     {
         if (_active is not null && _rows.Contains(_active) && !_active.Block.IsAtomic) return _active;
-        return _rows.FirstOrDefault(r => !r.Block.IsAtomic);
+        return _rows.FirstOrDefault(r => !r.Block.IsAtomic && !r.Block.IsGrid);
+    }
+
+    /// <summary>The text box the toolbar acts on: the current block's, or the current cell of a table or chart.</summary>
+    private TextTarget? ActiveTarget()
+    {
+        var row = ActiveRow();
+        if (row is null) return null;
+        if (row.Grid is { } grid) return grid.ActiveTarget();
+        return new TextTarget(row.Edit, row.Block.HasMarkup, text => SetText(row, text), (s, e) => FocusRow(row, s, e));
     }
 
     private Row CreateRow(NoteBlock block)
@@ -294,7 +322,7 @@ public partial class NoteEditor : UserControl
         var row = new Row
         {
             Block = block, Frame = frame, MarkerHost = markerHost, Marker = marker, Stamp = stamp,
-            View = view, Edit = edit, Rule = rule, Picture = picture,
+            View = view, Edit = edit, Rule = rule, Picture = picture, Content = content,
         };
         picture.DoubleTapped += (_, _) => OpenPicture(row);
         picture.ContextMenu = PictureMenu(row);
@@ -318,13 +346,64 @@ public partial class NoteEditor : UserControl
         return row;
     }
 
-    private Row AddRow(int index, NoteBlock block)
+    private Row AddRow(int index, NoteBlock block, bool showData = false)
     {
         var row = CreateRow(block);
         _rows.Insert(index, row);
         BlockHost.Children.Insert(index, row.Frame);
+        if (block.IsGrid) AddGrid(row, showData);
         ApplyKind(row);
         return row;
+    }
+
+    /// <summary>Gives a table or chart row its view and connects it to the editor.</summary>
+    private void AddGrid(Row row, bool showData)
+    {
+        GridBlockView grid;
+        if (row.Block.Kind == BlockKind.Table)
+        {
+            var table = new NoteTableView(row.Block);
+            table.ChartRequested += () =>
+            {
+                if (!_rows.Contains(row)) return;
+                var chart = AddRow(_rows.IndexOf(row) + 1, NoteDocument.ChartFromTable(row.Block));
+                RefreshLists();
+                FocusRow(chart, 0);
+                Changed?.Invoke();
+            };
+            grid = table;
+        }
+        else
+        {
+            grid = new NoteChartView(row.Block, showData);
+        }
+        grid.Changed += () => Changed?.Invoke();
+        grid.Exit = direction => _rows.Contains(row) && LeaveGrid(row, direction);
+        grid.DeleteRequested += () =>
+        {
+            if (!_rows.Contains(row)) return;
+            var index = _rows.IndexOf(row);
+            RemoveRow(row);
+            RefreshLists();
+            var near = _rows.ElementAtOrDefault(Math.Min(index, _rows.Count - 1));
+            if (near is not null && !near.Block.IsAtomic) FocusRow(near, 0);
+            Changed?.Invoke();
+        };
+        grid.AddHandler(GotFocusEvent, (_, _) => _active = row);
+        row.Grid = grid;
+        row.Content.Children.Add(grid);
+    }
+
+    /// <summary>The caret leaves a table or chart; below the last block a new paragraph is started.</summary>
+    private bool LeaveGrid(Row row, int direction)
+    {
+        if (Move(row, direction, atEnd: direction < 0)) return true;
+        if (direction < 0) return false;
+        var next = AddRow(_rows.IndexOf(row) + 1, new NoteBlock());
+        RefreshLists();
+        FocusRow(next, 0);
+        Changed?.Invoke();
+        return true;
     }
 
     private void RemoveRow(Row row)
@@ -348,6 +427,8 @@ public partial class NoteEditor : UserControl
         BlockKind.Raw => "HTML block",
         BlockKind.Divider => "Divider",
         BlockKind.Image => "Picture",
+        BlockKind.Table => "Table",
+        BlockKind.Chart => "Chart",
         _ => "Paragraph",
     };
 
@@ -388,6 +469,9 @@ public partial class NoteEditor : UserControl
                 f.Background = CodeBack;
                 f.CornerRadius = new CornerRadius(4);
                 break;
+            case BlockKind.Table or BlockKind.Chart:
+                f.Margin = new Thickness(0, 8);
+                break;
             case BlockKind.Raw:
                 f.Margin = new Thickness(0, 4);
                 f.Padding = new Thickness(8, 6);
@@ -420,12 +504,13 @@ public partial class NoteEditor : UserControl
         var divider = b.Kind == BlockKind.Divider;
         row.Rule.IsVisible = divider;
         row.Picture.IsVisible = b.Kind == BlockKind.Image;
+        if (row.Grid is not null) row.Grid.IsVisible = b.IsGrid;
         if (b.Kind == BlockKind.Image)
         {
             row.View.IsVisible = row.Edit.IsVisible = false;
             ShowPicture(row);
         }
-        else if (divider)
+        else if (divider || b.IsGrid)
         {
             row.View.IsVisible = row.Edit.IsVisible = false;
         }
@@ -462,10 +547,18 @@ public partial class NoteEditor : UserControl
 
     private void Render(Row row)
     {
-        var inlines = row.View.Inlines ??= new InlineCollection();
+        row.Spans = RenderInlines(row.View, row.Block.Text);
+        if (row.Spans.Count == 0 && _rows.Count == 1 && row.Block.Kind == BlockKind.Paragraph)
+            row.View.Inlines!.Add(new Run(Placeholder) { Foreground = Muted });
+    }
+
+    /// <summary>Shows inline markup with real formatting; returns the runs (to map clicks back to the markup).</summary>
+    internal static List<InlineSpan> RenderInlines(TextBlock view, string markup)
+    {
+        var inlines = view.Inlines ??= new InlineCollection();
         inlines.Clear();
-        row.Spans = NoteDocument.ParseInline(row.Block.Text);
-        foreach (var span in row.Spans)
+        var spans = NoteDocument.ParseInline(markup);
+        foreach (var span in spans)
         {
             var run = new Run(span.Text);
             if (span.Bold) run.FontWeight = FontWeight.Bold;
@@ -483,13 +576,19 @@ public partial class NoteEditor : UserControl
             if (span.Muted) run.Foreground = Muted;
             inlines.Add(run);
         }
-        if (row.Spans.Count == 0 && _rows.Count == 1 && row.Block.Kind == BlockKind.Paragraph)
-            inlines.Add(new Run(Placeholder) { Foreground = Muted });
+        return spans;
     }
 
     private void FocusRow(Row row, int caret, int selectTo = -1)
     {
         if (row.Block.IsAtomic) return;
+        if (row.Grid is { } grid)
+        {
+            // a caret past the start means "at the end": the last cell
+            _active = row;
+            grid.FocusEdge(atEnd: caret > 0);
+            return;
+        }
         if (row.Block.HasMarkup)
         {
             row.Editing = true;
@@ -601,7 +700,7 @@ public partial class NoteEditor : UserControl
     }
 
     /// <summary>The visual line the caret is on (wrapped lines count), and how many there are.</summary>
-    private static int CaretLine(TextBox box, out int lineCount)
+    internal static int CaretLine(TextBox box, out int lineCount)
     {
         var caret = Math.Clamp(box.CaretIndex, 0, box.Text?.Length ?? 0);
         var layout = box.GetVisualDescendants().OfType<TextPresenter>().FirstOrDefault()?.TextLayout;
@@ -620,8 +719,7 @@ public partial class NoteEditor : UserControl
         var i = _rows.IndexOf(row) + direction;
         while (i >= 0 && i < _rows.Count && _rows[i].Block.IsAtomic) i += direction;
         if (i < 0 || i >= _rows.Count) return false;
-        var target = _rows[i];
-        FocusRow(target, atEnd ? target.Edit.Text?.Length ?? 0 : 0);
+        FocusRow(_rows[i], atEnd ? int.MaxValue : 0);
         return true;
     }
 
@@ -717,9 +815,9 @@ public partial class NoteEditor : UserControl
             return true;
         }
         var prevText = prev.Edit.Text ?? "";
-        if (prev.Block.Kind == BlockKind.Raw)
+        if (prev.Block.Kind == BlockKind.Raw || prev.Block.IsGrid)
         {
-            FocusRow(prev, prevText.Length);
+            FocusRow(prev, int.MaxValue);
             if (text.Length == 0) RemoveRow(row);
             Changed?.Invoke();
             return true;
@@ -1025,6 +1123,13 @@ public partial class NoteEditor : UserControl
     /// <summary>Pastes text; each further line becomes its own block (list and heading prefixes are recognised).</summary>
     private void InsertPlain(Row row, string text)
     {
+        if (NoteDocument.GridFromText(text) is { } cells)
+        {
+            // cells copied from a spreadsheet, or a Markdown table
+            _active = row;
+            InsertGrid(new NoteBlock { Kind = BlockKind.Table, Cells = cells });
+            return;
+        }
         var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
         var current = row.Edit.Text ?? "";
         var (s, e) = Selection(row.Edit);
@@ -1064,31 +1169,31 @@ public partial class NoteEditor : UserControl
     {
         if (!e.GetCurrentPoint(row.View).Properties.IsLeftButtonPressed) return;
         var rendered = row.View.TextLayout.HitTestPoint(e.GetPosition(row.View)).TextPosition;
-        if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && UrlAt(row, rendered) is { } url)
-        {
-            try
-            {
-                Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true });
-            }
-            catch
-            {
-                // not a launchable address — ignore
-            }
-            e.Handled = true;
-            return;
-        }
         e.Handled = true;
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && OpenUrlAt(row.Spans, rendered)) return;
         FocusRow(row, NoteDocument.SourceIndex(row.Spans, rendered, row.Block.Text.Length));
     }
 
-    private static string? UrlAt(Row row, int rendered)
+    /// <summary>Opens the link under a rendered character position (Ctrl+click); false when there is none.</summary>
+    internal static bool OpenUrlAt(IReadOnlyList<InlineSpan> spans, int rendered)
     {
-        foreach (var span in row.Spans)
+        string? url = null;
+        foreach (var span in spans)
         {
-            if (rendered < span.Text.Length) return span.Url;
+            url = span.Url;
+            if (rendered < span.Text.Length) break;
             rendered -= span.Text.Length;
         }
-        return row.Spans.LastOrDefault()?.Url;
+        if (url is null) return false;
+        try
+        {
+            Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true });
+        }
+        catch
+        {
+            // not a launchable address — ignore
+        }
+        return true;
     }
 
     private void Filler_PointerPressed(object? sender, PointerPressedEventArgs e)

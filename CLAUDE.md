@@ -27,7 +27,8 @@ dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 | `Services/TimerService.cs` | 1-second ticker that runs the timers (beep / shell command / AI CLI via stdin). Supports pause and resume (`TimersPausedUntil` in the config). |
 | `Services/NotesService.cs` | One file per note (`Load`, `Save(note)`, `Delete`), migration from the old `notes.json`, conflict-copy adoption, `Watch` + `ExternalChange` for other PCs' edits, pictures (`AddImage`, `ResolveImage`, `MapImages`, `DeleteUnusedImages`). Also search, `HtmlToMarkdown` / `ToMarkdown` / `ToHtml` (export). |
 | `Services/ClipboardImageService.cs` | Reads a pasted picture: Win32 clipboard (`PNG` format, else `CF_DIB` → .bmp) or `osascript` on macOS. |
-| `Services/NoteDocument.cs` | Note body model for the visual editor: `Parse` (HTML, incl. old `• `/`1. `/`◷` plain lines → `NoteBlock`s), `ToHtml`, `ToMarkdown`, and the inline markup (`**b**`, `*i*`, `` `c` ``, `[t](u)`) ↔ HTML conversion. |
+| `Services/NoteDocument.cs` | Note body model for the visual editor: `Parse` (HTML, incl. old `• `/`1. `/`◷` plain lines → `NoteBlock`s), `ToHtml`, `ToMarkdown`, `FromMarkdown`, and the inline markup (`**b**`, `*i*`, `` `c` ``, `[t](u)`) ↔ HTML conversion. Tables and charts (`Cells`, `Header`, `ChartType`), `GridFromText` (pasted spreadsheet cells), `ParseDelimited`. |
+| `Services/ChartLayout.cs` | Lays out a chart block (bar / line / pie) as shapes with SVG path data and colour tokens, so the editor (`ChartCanvas`) and the export (`ToSvg`) draw the same picture. Also `Data` (labels + series from the cells), `ParseNumber`, `HoverAt`, and the categorical palette. |
 | `Services/TimestampService.cs` | Timestamp formats: .NET date formats, or a template whose `{…}` parts are formatted (InvariantCulture). |
 | `Services/AiService.cs` | Runs the AI CLI (`AskAsync`, never throws): provider `claude` → `claude -p --model <AiModel>` (default `claude-haiku-5-5`), `custom` → `AiCommand`, `kiro` → not supported yet. Prompt on stdin (UTF-8), started in an empty temp folder. Also `{placeholder}` expansion, `ExtractJson`, `ExtractCode`, `StripOuterFence`. |
 | `Services/AiPrompts.cs` | Every AI prompt (work report, timesheet, note rewrites, minutes, title/tags, explain/generate script, timer from text). |
@@ -35,6 +36,7 @@ dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 | `Views/AiResultWindow.axaml(.cs)` | Shared dialog: runs an AI request (Stop / Try again), shows the editable answer and action buttons; returns `(action, text)`. |
 | `Views/QuickAskWindow`, `Views/AiScriptWindow` | Ask AI (single instance via `App.ShowQuickAsk`), and write-a-script-with-AI. |
 | `Views/NoteEditor.axaml(.cs)` | The WYSIWYG note editor (a UserControl): one row per block, each with a rendered `TextBlock` and a `TextBox` that is shown only while that block is edited. |
+| `Views/NoteTableView.cs`, `Views/NoteChartView.cs` | Table and chart blocks in the editor (`GridBlockView`): a grid of cells (rendered / edited like blocks), and a chart (title, type, `ChartCanvas`, and its data as a `NoteTableView`). |
 | `Views/*` | One window per feature. `ToastWindow.cs` is the corner pop-up, built in code only. `UiHelpers.cs` holds `Dialogs.Confirm`. |
 
 ## Data files
@@ -43,7 +45,7 @@ Settings live in `ConfigDir`: `%APPDATA%\ScriptAppDashboard`, or the folder in t
 Notes, images and the work log live in `DataDir`: the `DataFolder` setting (e.g. a OneDrive folder shared by several PCs), else `ConfigDir`.
 
 - `config.json` (ConfigDir): scripts, timers and settings.
-- `notes/<id>.json` (DataDir): one note per file, written atomically (.tmp + move). The body is HTML; the visual editor writes one block per line (`<p>`, `<h1-6>`, `<ul>`/`<ol>`, `<ul class="timed">` with `<span class="t">stamp</span>`, `<blockquote>`, `<pre><code>`, `<hr>`, and `<p><img src="images/…"></p>` for a picture). An old single `notes.json` is split up once and renamed `notes.json.migrated`.
+- `notes/<id>.json` (DataDir): one note per file, written atomically (.tmp + move). The body is HTML; the visual editor writes one block per line (`<p>`, `<h1-6>`, `<ul>`/`<ol>`, `<ul class="timed">` with `<span class="t">stamp</span>`, `<blockquote>`, `<pre><code>`, `<hr>`, `<p><img src="images/…"></p>` for a picture, `<table>` with one `<tr>` per line, and `<figure class="chart" data-type="bar|line|pie">` holding an optional `<figcaption>` and a `<table>` for a chart). An old single `notes.json` is split up once and renamed `notes.json.migrated`.
 - `images/` (DataDir): pictures, referenced relative to DataDir (`images/20261011-093000-1a2b3c4d.png`).
 - `timers.json` (DataDir): the timers, only when `SyncTimers` is on.
 - `worklog/yyyy-MM-dd.jsonl` (DataDir; `yyyy-MM-dd.<MachineName>.jsonl` when synced): one JSON object per line, UTF-8 without a BOM. The `k` field is:
@@ -93,13 +95,19 @@ Notes, images and the work log live in `DataDir`: the `DataFolder` setting (e.g.
 - **AI:**
   - Notes made outside the notes window (AI answers, day summaries) go through `App.AddNote`: an open `NotesWindow` keeps its own list and would overwrite `notes.json` on its next save.
   - The notes AI menu captures the selection (`NoteEditor.CaptureSelection`) in the button's `Click` before showing the flyout; the flyout takes focus and the TextBox drops its selection.
-  - Answers are Markdown; `NoteDocument.FromMarkdown` turns them into blocks (tables become Raw `<table>` blocks).
+  - Answers are Markdown; `NoteDocument.FromMarkdown` turns them into blocks (Markdown tables become Table blocks, a ```` ```chart [type] ```` fence with optional `title:` / `type:` lines and CSV or a Markdown table becomes a Chart).
   - The end-of-day summary runs from a 1-minute timer in `App` (`AiDaySummaryLast` makes it once per working day).
 - **Sync (data folder):**
   - Save notes one at a time with `NotesService.Save(note)`; never rewrite all notes, or two PCs overwrite each other.
   - `NotesService` remembers what it wrote, so the watcher ignores our own saves. Files whose name isn't `<id>.json` (sync conflict copies) are adopted as a separate "(conflicting copy)" note, never dropped.
   - The work log reads every PC's file for a day and sorts by time; each PC appends only to its own file.
   - Changing the data folder copies notes, images and the work log there (`CopyTo`), then restarts the app (`App.Restart`).
+- **Tables and charts:**
+  - A `<table>` becomes a Table block only when the editor can write it back unchanged in meaning: no attributes, no colspan, `<th>` only in the whole first row, inline content only. Anything else stays a Raw block.
+  - They are `IsGrid` blocks: not `IsAtomic` (arrows go into them; Backspace after one moves into its last cell instead of deleting it), and `HasMarkup` is false. Their row has a `GridBlockView`; `FocusRow(row, caret > 0)` focuses its last cell.
+  - Toolbar actions go through `ActiveTarget()` (the block's TextBox or the current cell), so bold, link, code and time work in cells.
+  - A new table's cells are only in the visual tree after its ScrollViewer has a template, so `FocusCell` posts the focus once when the cell isn't attached yet.
+  - Charts take at most 8 series (pie: 7 slices + "Other"); text columns are skipped. Colours come from `ChartLayout.Color` (light and dark steps); the export draws light colours.
 - **Pictures:** a picture on its own line is a `BlockKind.Image` block (`IsAtomic`, like a divider: the caret skips it, Backspace/Delete next to it remove it). The editor decodes at most 1600 px wide and disposes bitmaps on `Load` / row removal. Paste prefers text over a picture (Excel and browsers put both on the clipboard).
 - **Non-ASCII in .ps1 test scripts:** characters like `◷` and `•` get mangled in .ps1 files saved without a BOM. Build them with `[char]0x25F7`.
 
@@ -120,5 +128,6 @@ Notes, images and the work log live in `DataDir`: the `DataFolder` setting (e.g.
   - Remove only the test lines you added to today's `worklog/*.jsonl`; it also holds the user's real activity.
   - Delete test notes when you're done.
 - **Clipboard and screenshots in tests** fail when the Windows session is locked (`LogonUI` running, `GetForegroundWindow` = 0). The common file dialog exposes only panes to UIAutomation; type a path with `SendInput` + `KEYEVENTF_UNICODE` (it bypasses a Telex input method).
+- **Headless UI tests** (works while the session is locked): a scratch console project referencing `bin/Debug/net8.0/ScriptAppDashboard.dll` plus `Avalonia.Headless`, `Avalonia.Skia` and `Avalonia.Themes.Fluent` 11.3.2. Host a `NoteEditor` in a `Window`, drive it with `KeyPress` / `KeyTextInput` / `MouseDown`, and save `CaptureRenderedFrame()` as a PNG. Don't add it to the repo.
 - **AI in UI tests:** each call takes 5–20 s with Haiku. `AiResultWindow` dialogs are owned windows, so look for them among the owner's child windows too. Text typed with SendKeys can be rewritten by a Vietnamese (Telex) input method; set values with `ValuePattern` instead.
 - **Idle rule during tests:** automated tests produce no keyboard or mouse input, so after 5 min the work log records nothing. That is correct behaviour, not a bug.

@@ -68,6 +68,12 @@
         <Button Content="🖼 Image" AutomationProperties.Name="Insert picture"
                 ToolTip.Tip="Insert pictures — or paste a screenshot (Ctrl+V), or drop picture files onto the note"
                 Click="Image_Click"/>
+        <Button Content="▦ Table" AutomationProperties.Name="Insert table"
+                ToolTip.Tip="Insert a table — Tab moves between cells, right-click adds or removes rows and columns. Pasting cells from Excel makes a table too."
+                Click="Table_Click"/>
+        <Button Content="📊 Chart" AutomationProperties.Name="Insert chart"
+                ToolTip.Tip="Insert a bar, line or pie chart drawn from a small data table (or right-click a table → Make a chart)"
+                Click="Chart_Click"/>
         <Button x:Name="AiButton" Content="✨ AI ▾" AutomationProperties.Name="AI"
                 ToolTip.Tip="AI: rewrite, shorten, fix or translate the selected text (or the whole note), continue writing, summarise, extract to-dos, make meeting minutes, suggest a title and tags"
                 Click="Ai_Click">
