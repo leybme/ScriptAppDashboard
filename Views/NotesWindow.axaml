@@ -65,6 +65,34 @@
         <Button Content="◷ Timed" ToolTip.Tip="Time bullets — every new item (Enter) is stamped with the current date and time" Click="Timed_Click"/>
         <Button x:Name="TimeButton" Content="🕒 Time" ToolTip.Tip="Insert the current time (format in Settings)"
                 Click="Time_Click"/>
+        <Button x:Name="AiButton" Content="✨ AI ▾" AutomationProperties.Name="AI"
+                ToolTip.Tip="AI: rewrite, shorten, fix or translate the selected text (or the whole note), continue writing, summarise, extract to-dos, make meeting minutes, suggest a title and tags"
+                Click="Ai_Click">
+          <FlyoutBase.AttachedFlyout>
+            <MenuFlyout Placement="BottomEdgeAlignedLeft">
+              <MenuItem x:Name="AiScopeItem" Header="On the selected text" IsEnabled="False"/>
+              <MenuItem Header="Improve writing" Tag="improve" Click="AiAction_Click"/>
+              <MenuItem Header="Shorten" Tag="shorten" Click="AiAction_Click"/>
+              <MenuItem Header="Fix spelling and grammar" Tag="fix" Click="AiAction_Click"/>
+              <MenuItem Header="Translate to">
+                <MenuItem Header="English" Tag="translate:English" Click="AiAction_Click"/>
+                <MenuItem Header="Vietnamese (Tiếng Việt)" Tag="translate:Vietnamese" Click="AiAction_Click"/>
+                <MenuItem Header="Japanese (日本語)" Tag="translate:Japanese" Click="AiAction_Click"/>
+                <MenuItem Header="Chinese, Simplified (简体中文)" Tag="translate:Simplified Chinese" Click="AiAction_Click"/>
+                <MenuItem Header="Korean (한국어)" Tag="translate:Korean" Click="AiAction_Click"/>
+                <MenuItem Header="French (Français)" Tag="translate:French" Click="AiAction_Click"/>
+                <MenuItem Header="German (Deutsch)" Tag="translate:German" Click="AiAction_Click"/>
+                <MenuItem Header="Spanish (Español)" Tag="translate:Spanish" Click="AiAction_Click"/>
+              </MenuItem>
+              <MenuItem Header="Continue writing" Tag="continue" Click="AiAction_Click"/>
+              <Separator/>
+              <MenuItem Header="Summarize the note" Tag="summary" Click="AiAction_Click"/>
+              <MenuItem Header="Extract to-dos" Tag="todos" Click="AiAction_Click"/>
+              <MenuItem Header="Turn into meeting minutes" Tag="minutes" Click="AiAction_Click"/>
+              <MenuItem Header="Suggest a title and tags" Tag="title" Click="AiAction_Click"/>
+            </MenuFlyout>
+          </FlyoutBase.AttachedFlyout>
+        </Button>
       </WrapPanel>
       <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">

@@ -258,6 +258,62 @@ public static class NoteDocument
         return new NoteBlock { Text = Inline(line) };
     }
 
+    private static readonly Regex Fence = new(@"^\s*(```|~~~)", RegexOptions.Compiled);
+    private static readonly Regex Rule = new(@"^\s*([-*_])(\s*\1){2,}\s*$", RegexOptions.Compiled);
+    private static readonly Regex TableSeparator = new(@"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$", RegexOptions.Compiled);
+
+    /// <summary>Markdown (e.g. an AI answer) as blocks: headings, lists, quotes, ``` code, --- rules; tables become HTML blocks.</summary>
+    public static List<NoteBlock> FromMarkdown(string? markdown)
+    {
+        var blocks = new List<NoteBlock>();
+        var lines = (markdown ?? "").Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            if (Fence.IsMatch(line))
+            {
+                var code = new List<string>();
+                while (++i < lines.Length && !Fence.IsMatch(lines[i])) code.Add(lines[i]);
+                blocks.Add(new NoteBlock { Kind = BlockKind.Code, Text = string.Join("\n", code) });
+                continue;
+            }
+            if (line.Trim().Length == 0) continue;
+            if (Rule.IsMatch(line))
+            {
+                blocks.Add(new NoteBlock { Kind = BlockKind.Divider });
+                continue;
+            }
+            if (line.TrimStart().StartsWith('|') && i + 1 < lines.Length && TableSeparator.IsMatch(lines[i + 1]))
+            {
+                var rows = new List<string> { line };
+                i++; // the separator
+                while (i + 1 < lines.Length && lines[i + 1].TrimStart().StartsWith('|')) rows.Add(lines[++i]);
+                blocks.Add(new NoteBlock { Kind = BlockKind.Raw, Text = TableHtml(rows) });
+                continue;
+            }
+            var block = ParseLine(line, fromHtml: false, markdown: true);
+            if (block.Text.StartsWith("[ ] ") || block.Text.StartsWith("[x] ", StringComparison.OrdinalIgnoreCase))
+                block.Text = (block.Text[1] == ' ' ? "☐ " : "☑ ") + block.Text[4..];
+            blocks.Add(block);
+        }
+        return blocks;
+    }
+
+    private static string TableHtml(List<string> rows)
+    {
+        static string[] Cells(string row) => row.Trim().Trim('|').Split('|').Select(c => MarkupToHtml(c.Trim())).ToArray();
+        var sb = new StringBuilder("<table>\n<tr>");
+        foreach (var cell in Cells(rows[0])) sb.Append("<th>").Append(cell).Append("</th>");
+        sb.Append("</tr>\n");
+        foreach (var row in rows.Skip(1))
+        {
+            sb.Append("<tr>");
+            foreach (var cell in Cells(row)) sb.Append("<td>").Append(cell).Append("</td>");
+            sb.Append("</tr>\n");
+        }
+        return sb.Append("</table>").ToString();
+    }
+
     private static (int Start, int End) FindClose(string s, string name, int from)
     {
         var depth = 1;

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -360,6 +361,7 @@ public partial class NotesWindow : Window
             title = text.Length > 40 ? text[..40] + "…" : text;
         }
 
+        var untitled = (TitleBox.Text ?? "").Trim().Length == 0;
         var isNew = _current is null;
         var note = _current ?? new NoteItem();
         note.Title = title;
@@ -376,6 +378,7 @@ public partial class NotesWindow : Window
             _dirty = false;
             StatusText.Text = $"Saved {note.Updated:HH:mm:ss}";
             if (isNew) WorkLogService.LogNote(note);
+            if (untitled && AppRef.Config.AiAutoTitle && NotesService.ToPlainText(html).Length >= 40) RequestAiTitle(note);
         }
         catch (Exception ex)
         {
@@ -534,6 +537,253 @@ public partial class NotesWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = "Could not open the preview: " + ex.Message;
+        }
+    }
+
+    // ---- AI ---------------------------------------------------------------------------
+
+    private App AppRef => (App)Avalonia.Application.Current!;
+
+    /// <summary>Notes already sent for an automatic title in this session (asked once, even if it failed).</summary>
+    private static readonly HashSet<Guid> TitleAsked = new();
+
+    private NoteEditor.EditorSelection? _aiSelection;
+    private (int Start, int End, string Text)? _aiHtmlSelection;
+    private bool _aiBusy;
+
+    /// <summary>Adds a note made elsewhere (AI answers, day summaries) to this window's list and saves it.</summary>
+    public void AddNote(NoteItem note)
+    {
+        _notes.Add(note);
+        NotesService.Save(_notes);
+        RefreshList(_current?.Id);
+    }
+
+    /// <summary>Applies an automatic AI title, unless the note got a real title meanwhile.</summary>
+    public void ApplyAiTitle(Guid id, string untitled, string title, IReadOnlyList<string> tags)
+    {
+        var note = _notes.FirstOrDefault(n => n.Id == id);
+        if (note is null || note.Title != untitled) return;
+        var showing = _current?.Id == id;
+        if (showing && (TitleBox.Text ?? "").Trim().Length > 0) return; // the user is typing a title
+        note.Title = title;
+        note.Tags = App.MergeTags(note.Tags, tags);
+        try { NotesService.Save(_notes); } catch { return; }
+        if (showing)
+        {
+            var wasDirty = _dirty;
+            _suppress = true;
+            TitleBox.Text = title;
+            TagsBox.Text = App.MergeTags(TagsBox.Text ?? "", tags);
+            _suppress = false;
+            if (wasDirty) UpdateDirty();
+            else _baseline = Snapshot();
+            StatusText.Text = $"✨ AI titled this note “{title}”";
+        }
+        RefreshList(_current?.Id);
+    }
+
+    private async void RequestAiTitle(NoteItem note)
+    {
+        if (!TitleAsked.Add(note.Id)) return;
+        var untitled = note.Title;
+        var result = await AiService.AskAsync(AiPrompts.TitleAndTags(Cap(NotesService.HtmlToMarkdown(note.Html), 8000)));
+        if (result.Ok && AiPrompts.TryParseTitle(result.Text, out var title, out var tags))
+            AppRef.ApplyAiTitle(note.Id, untitled, title, tags);
+    }
+
+    private static string Cap(string text, int max) => text.Length <= max ? text : text[..max] + "\n…";
+
+    /// <summary>Remembers the selection before the menu takes the focus (a TextBox drops its selection then).</summary>
+    private void Ai_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_aiBusy)
+        {
+            StatusText.Text = "✨ Still waiting for the AI…";
+            return;
+        }
+        _aiSelection = null;
+        _aiHtmlSelection = null;
+        bool selected;
+        if (_codeView)
+        {
+            var text = HtmlBox.Text ?? "";
+            var s = Math.Clamp(Math.Min(HtmlBox.SelectionStart, HtmlBox.SelectionEnd), 0, text.Length);
+            var end = Math.Clamp(Math.Max(HtmlBox.SelectionStart, HtmlBox.SelectionEnd), s, text.Length);
+            if (end > s) _aiHtmlSelection = (s, end, text[s..end]);
+            selected = end > s;
+        }
+        else
+        {
+            _aiSelection = Editor.CaptureSelection();
+            selected = _aiSelection is { Text.Length: > 0 };
+        }
+        AiScopeItem.Header = selected ? "Acts on the selected text" : "Acts on the whole note (select text to change only that)";
+        FlyoutBase.ShowAttachedFlyout(AiButton);
+    }
+
+    private static string ActionLabel(string action) => action switch
+    {
+        "shorten" => "Shorten",
+        "fix" => "Fix spelling and grammar",
+        "improve" => "Improve writing",
+        _ when action.StartsWith("translate:") => "Translate to " + action["translate:".Length..],
+        _ => action,
+    };
+
+    private async void AiAction_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string action } || _aiBusy) return;
+        var selection = _codeView ? _aiHtmlSelection?.Text : _aiSelection is { Text.Length: > 0 } sel ? sel.Text : null;
+        var note = Cap(NotesService.HtmlToMarkdown(CurrentHtml()), 60000);
+        var title = (TitleBox.Text ?? "").Trim();
+        if (selection is null && note.Trim().Length == 0)
+        {
+            StatusText.Text = "This note is empty — write something first.";
+            return;
+        }
+        if (action == "title")
+        {
+            await SuggestTitleAsync(note);
+            return;
+        }
+
+        string heading, prompt;
+        (string, string)[] buttons;
+        switch (action)
+        {
+            case "continue":
+                heading = "Continue writing";
+                var from = _aiSelection?.BlockText is { Length: > 0 } block ? block : note[Math.Max(0, note.Length - 600)..];
+                prompt = AiPrompts.Continue(note, from);
+                buttons = new[] { ("insert", _codeView || _aiSelection is null ? "Add at the end" : "Insert after the paragraph") };
+                break;
+            case "summary":
+                heading = "Summary of the note";
+                prompt = AiPrompts.Summarize(note);
+                buttons = new[] { ("top", "Insert at the top"), ("end", "Add at the end") };
+                break;
+            case "todos":
+                heading = "To-dos in the note";
+                prompt = AiPrompts.Todos(note);
+                buttons = new[] { ("end", "Add at the end"), ("top", "Insert at the top") };
+                break;
+            case "minutes":
+                heading = "Meeting minutes";
+                prompt = AiPrompts.Minutes(note, title);
+                buttons = new[] { ("new", "Save as a new note"), ("replace", "Replace this note") };
+                break;
+            default:
+                heading = ActionLabel(action) + (selection is null ? " — whole note" : " — selected text");
+                prompt = AiPrompts.Rewrite(action, selection ?? note, wholeNote: selection is null);
+                buttons = selection is null
+                    ? new[] { ("replace", "Replace the note"), ("new", "Save as a new note") }
+                    : new[] { ("selection", "Replace the selection"), ("insert", "Insert below") };
+                break;
+        }
+
+        var choice = await AiResultWindow.Show(this, heading, ct => AiService.AskAsync(prompt, ct), buttons);
+        if (choice is not { } c) return;
+        ApplyAiResult(action, c.Action, AiService.StripOuterFence(c.Text), title);
+    }
+
+    private void ApplyAiResult(string action, string choice, string text, string title)
+    {
+        if (action == "todos" && text.Trim().Equals("NONE", StringComparison.OrdinalIgnoreCase))
+        {
+            StatusText.Text = "The AI found no to-dos in this note.";
+            return;
+        }
+        var blocks = NoteDocument.FromMarkdown(text);
+        if (choice is "top" or "end")
+            blocks.Insert(0, new NoteBlock { Kind = BlockKind.Heading, Level = 2, Text = action == "todos" ? "To-do" : "Summary" });
+
+        switch (choice)
+        {
+            case "selection":
+                if (_codeView && _aiHtmlSelection is { } h && h.End <= (HtmlBox.Text ?? "").Length && HtmlBox.Text![h.Start..h.End] == h.Text)
+                {
+                    HtmlBox.Text = HtmlBox.Text[..h.Start] + text + HtmlBox.Text[h.End..];
+                }
+                else if (_codeView || _aiSelection is null || !Editor.ReplaceSelection(_aiSelection, text))
+                {
+                    StatusText.Text = "The selected text changed meanwhile — use “Copy” in the AI window instead.";
+                    return;
+                }
+                break;
+            case "insert" when !_codeView:
+                Editor.InsertBlocks(blocks, _aiSelection);
+                break;
+            case "top" when !_codeView:
+                Editor.InsertBlocks(blocks, atStart: true);
+                break;
+            case "end" when !_codeView:
+                Editor.InsertBlocks(blocks);
+                break;
+            case "top":
+                HtmlBox.Text = NoteDocument.ToHtml(blocks) + "\n" + HtmlBox.Text;
+                break;
+            case "insert" or "end":
+                HtmlBox.Text = (HtmlBox.Text ?? "").TrimEnd() + "\n" + NoteDocument.ToHtml(blocks);
+                break;
+            case "replace":
+                if (_codeView) HtmlBox.Text = NoteDocument.ToHtml(blocks);
+                else
+                {
+                    Editor.Load(NoteDocument.ToHtml(blocks));
+                    UpdateDirty();
+                }
+                break;
+            case "new":
+                var note = new NoteItem
+                {
+                    Title = action == "minutes" ? $"Minutes — {(title.Length > 0 ? title : DateTime.Now.ToString("yyyy-MM-dd"))}"
+                        : $"{(title.Length > 0 ? title : "Note")} ({ActionLabel(action)})",
+                    Tags = (TagsBox.Text ?? "").Trim(),
+                    Html = NoteDocument.ToHtml(blocks),
+                };
+                try
+                {
+                    AppRef.AddNote(note);
+                }
+                catch (Exception ex)
+                {
+                    StatusText.Text = "Could not save the new note: " + ex.Message;
+                    return;
+                }
+                SelectNote(note.Id);
+                StatusText.Text = $"✨ Saved as the new note “{note.Title}”.";
+                return;
+        }
+        StatusText.Text = "✨ AI text added — press Ctrl+S to keep it.";
+    }
+
+    private async System.Threading.Tasks.Task SuggestTitleAsync(string note)
+    {
+        var target = _current;
+        _aiBusy = true;
+        StatusText.Text = "✨ Asking the AI for a title and tags…";
+        try
+        {
+            var result = await AiService.AskAsync(AiPrompts.TitleAndTags(Cap(note, 8000)));
+            if (_current != target)
+            {
+                StatusText.Text = "Another note was opened meanwhile — the suggested title was not applied.";
+                return;
+            }
+            if (!result.Ok || !AiPrompts.TryParseTitle(result.Text, out var title, out var tags))
+            {
+                StatusText.Text = "AI: " + (result.Ok ? "no usable title in the answer." : result.Text.ReplaceLineEndings(" "));
+                return;
+            }
+            TitleBox.Text = title;
+            TagsBox.Text = App.MergeTags(TagsBox.Text ?? "", tags);
+            UpdateDirty();
+            StatusText.Text = "✨ Title and tags suggested — press Ctrl+S to keep them.";
+        }
+        finally
+        {
+            _aiBusy = false;
         }
     }
 

@@ -53,9 +53,9 @@ Repeat a reminder every 30 seconds to every few hours. A timer can:
 
 - beep,
 - run a shell command, or
-- send a prompt to an AI command-line tool that reads stdin, such as `claude -p`.
+- send a prompt to the AI (see [AI](#ai)). The prompt can include `{today_summary}`, `{week_summary}`, `{current_app}`, `{clipboard}`, `{today_notes}`, `{date}` and `{time}`, which are filled in when the timer fires.
 
-A small pop-up in the screen corner shows your message and the output. It doesn't steal focus and closes by itself. You can pause all timers from the window or the tray for 30 minutes, 1 hour, 2 hours, until tomorrow morning or until you resume. Templates get you started with an eye break, a stretch reminder, an AI check-in or a scheduled command.
+A small pop-up in the screen corner shows your message and the output. It doesn't steal focus and closes by itself. You can pause all timers from the window or the tray for 30 minutes, 1 hour, 2 hours, until tomorrow morning or until you resume. Templates get you started with an eye break, a stretch reminder, an AI check-in or a scheduled command. You can also describe a timer in a sentence ("remind me to drink water every 40 minutes") and press **Create with AI** to have it filled in for you.
 
 ![Interval timers](docs/images/screenshotTimers.png)
 
@@ -86,6 +86,23 @@ One search box (Ctrl+F in the main window) looks through notes and the work log 
 Many tasks need the current time pasted into a file or a ticket. **Copy time** in the main window or the tray copies it in your chosen format. Use a .NET date format or a template such as `[{yyyy-MM-dd HH:mm}]`, and pick a preset from Settings. The same format is used by the **Time** button in notes, and the button can be switched off.
 
 ![Timestamp settings](docs/images/screenshotSettingsTimestamp.png)
+
+### AI
+
+The AI features run the [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI in print mode (`claude -p`). The prompt goes to its standard input and its text answer is shown. Install it with `npm install -g @anthropic-ai/claude-code` and sign in once by running `claude` in a terminal. In **Settings → AI** you can:
+
+- pick the model (Haiku 5.5 by default: fastest and cheapest; Sonnet, Opus or Fable for better writing),
+- choose the language answers are written in,
+- or use a custom command that reads a prompt on stdin, such as `ollama run llama3`.
+
+Kiro is listed as a provider and will be supported in a later version. The **Test** button checks that everything works.
+
+- **Ask AI**: a quick question from the main window, the tray, or the global hotkey `Ctrl+Alt+Space` (Windows; set it in Settings). Follow-up questions see the earlier ones. You can include the clipboard or the window you were working in, and save the answer as a note.
+- **Notes**: the **✨ AI** menu improves, shortens, fixes or translates the selected text, or the whole note when nothing is selected. It can also continue writing, summarise the note, extract to-dos, turn raw meeting notes into minutes, and suggest a title and tags. You see the answer first and choose whether to replace, insert or save it as a new note. A note saved without a title gets an AI title and tags automatically.
+- **Work log**: **AI report** writes a standup-style summary of the range on screen (what you worked on, where your focus went, what's next). **AI timesheet** groups the time into projects with hours. Either can be saved as a note. When working hours end, an AI summary of the day is written into a note.
+- **Scripts**: right-click a tile and choose **Explain with AI…** to see what a script does and anything risky before you run it. **AI Script** writes a new script from a description; you review it before it's saved and added as a tile.
+
+Nothing is sent to the AI unless you use one of these features, set up an AI timer, or leave the automatic title and day summary turned on. Both can be switched off in Settings → AI.
 
 ## Run
 

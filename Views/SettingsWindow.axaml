@@ -84,6 +84,55 @@
         </StackPanel>
         </ScrollViewer>
       </TabItem>
+
+      <TabItem Header="AI">
+        <ScrollViewer>
+          <StackPanel Spacing="10" Margin="4,16,4,0">
+            <TextBlock Text="AI provider"/>
+            <DockPanel>
+              <Button x:Name="TestAiButton" DockPanel.Dock="Right" Content="Test" Margin="8,0,0,0" Click="TestAi_Click"
+                      ToolTip.Tip="Send a short test prompt and show the answer"/>
+              <ComboBox x:Name="AiProviderCombo" HorizontalAlignment="Stretch" SelectionChanged="AiProvider_Changed">
+                <ComboBoxItem Content="Claude (Claude Code CLI)" Tag="claude"/>
+                <ComboBoxItem Content="Kiro — coming in a later version" Tag="kiro" IsEnabled="False"/>
+                <ComboBoxItem Content="Custom command" Tag="custom"/>
+              </ComboBox>
+            </DockPanel>
+
+            <StackPanel x:Name="AiModelPanel" Spacing="10">
+              <TextBlock Text="Model"/>
+              <ComboBox x:Name="AiModelCombo" HorizontalAlignment="Stretch" SelectionChanged="AiProvider_Changed"/>
+            </StackPanel>
+
+            <StackPanel x:Name="AiCustomPanel" Spacing="10" IsVisible="False">
+              <TextBlock Text="Command (reads the prompt on standard input, prints the answer)"/>
+              <TextBox x:Name="AiCommandBox" FontFamily="Consolas,Menlo,monospace" Watermark="ollama run llama3"/>
+            </StackPanel>
+
+            <TextBlock x:Name="AiCommandPreview" FontSize="12" Foreground="Gray" FontFamily="Consolas,Menlo,monospace"/>
+            <TextBlock x:Name="AiTestText" FontSize="12" TextWrapping="Wrap" IsVisible="False"/>
+            <TextBlock FontSize="12" Foreground="Gray" TextWrapping="Wrap"
+                       Text="Claude runs the Claude Code CLI in print mode (claude -p). Install it with npm install -g @anthropic-ai/claude-code and sign in once by running claude in a terminal. Haiku answers fastest and costs least; pick a larger model for better writing and reports."/>
+
+            <TextBlock Text="Answer in" Margin="0,6,0,0"/>
+            <TextBox x:Name="AiLanguageBox" Watermark="the language of the content (e.g. English, Vietnamese)"/>
+
+            <TextBlock Text="“Ask AI” hotkey" Margin="0,6,0,0"/>
+            <TextBox x:Name="AiHotkeyBox" Watermark="Ctrl+Alt+Space — leave empty for none"/>
+            <TextBlock x:Name="AiHotkeyText" FontSize="12" Foreground="Gray" TextWrapping="Wrap"/>
+
+            <CheckBox x:Name="AiAutoTitleCheck" Margin="0,6,0,0"
+                      Content="Give notes saved without a title an AI title and tags"/>
+            <CheckBox x:Name="AiDaySummaryCheck" Content="End-of-day summary: when working hours end, write an AI report of the day into a note"/>
+            <TextBlock x:Name="AiDaySummaryText" FontSize="12" Foreground="Gray" TextWrapping="Wrap" Margin="28,-6,0,0"/>
+
+            <Border CornerRadius="6" Padding="12" Background="#14888888" Margin="0,8,0,0">
+              <TextBlock FontSize="12" TextWrapping="Wrap"
+                         Text="Privacy: what you send leaves this computer when the command is a cloud AI. That is the selected note text, the window titles of the work log in reports and {today_summary}, scripts you ask to explain, and the clipboard when you include it. Nothing is sent unless you use an AI feature, or turn on the automatic title / day summary above, or set up an AI timer."/>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
     </TabControl>
   </DockPanel>
 </Window>

@@ -34,6 +34,13 @@
               <TextBlock Text="Scan" VerticalAlignment="Center"/>
             </StackPanel>
           </Button>
+          <Button AutomationProperties.Name="AI Script" Margin="0,2,8,2" Click="AiScriptButton_Click"
+                  ToolTip.Tip="Describe a script and let AI write it; you review it before it's saved as a tile">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <materialIcons:MaterialIcon Kind="CreationOutline" Width="16" Height="16"/>
+              <TextBlock Text="AI Script" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Button>
           <Border Width="1" Height="24" Margin="2,0,10,0" Background="#40808080"/>
           <Button AutomationProperties.Name="Notes" Margin="0,2,8,2" Click="NoteButton_Click" ToolTip.Tip="Write a quick note — rich text, searchable later">
             <StackPanel Orientation="Horizontal" Spacing="6">
@@ -58,6 +65,12 @@
             <StackPanel Orientation="Horizontal" Spacing="6">
               <materialIcons:MaterialIcon Kind="Magnify" Width="16" Height="16"/>
               <TextBlock Text="Search" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Button>
+          <Button x:Name="AskAiButton" AutomationProperties.Name="Ask AI" Margin="0,2,8,2" Click="AskAiButton_Click">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <materialIcons:MaterialIcon Kind="RobotOutline" Width="16" Height="16"/>
+              <TextBlock Text="Ask AI" VerticalAlignment="Center"/>
             </StackPanel>
           </Button>
           <Button x:Name="CopyTimeButton" AutomationProperties.Name="Copy time" Margin="0,2,8,2" Click="CopyTimeButton_Click">

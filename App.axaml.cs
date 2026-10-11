@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -23,6 +25,7 @@ public partial class App : Application
     public override void OnFrameworkInitializationCompleted()
     {
         Config = ConfigService.Load();
+        AiService.Start(Config);
         WorkLogService.Start(Config);
         TimerService.Start(Config);
         TimerService.Ran += (timer, output) =>
@@ -40,6 +43,10 @@ public partial class App : Application
             // the app lives in the tray; closing/hiding windows must not end it
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             SetupTrayIcon();
+            ApplyHotkey();
+            SettingsChanged += ApplyHotkey;
+            _daySummaryTimer.Tick += (_, _) => CheckDaySummary();
+            _daySummaryTimer.Start();
 
             var startMinimized = desktop.Args?.Contains("--minimized") == true;
             if (!startMinimized)
@@ -189,10 +196,162 @@ public partial class App : Application
         }
     }
 
+    // ---- AI ---------------------------------------------------------------------------
+
+    private Views.QuickAskWindow? _quickAskWindow;
+
+    /// <summary>Why the "Ask AI" hotkey could not be registered, or null.</summary>
+    public string? HotkeyError { get; private set; }
+
+    private string? _registeredHotkey;
+
+    private void ApplyHotkey()
+    {
+        if (_registeredHotkey == Config.AiHotkey) return;
+        _registeredHotkey = Config.AiHotkey;
+        HotkeyError = HotkeyService.Start(Config.AiHotkey, () =>
+        {
+            // remember what was in front before our window takes over
+            var foreground = WorkLogService.Foreground();
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => ShowQuickAsk(foreground));
+        });
+        RefreshTrayMenu(); // the "Ask AI" entry shows the hotkey only when it works
+    }
+
+    /// <param name="foreground">The window that was in front when the hotkey was pressed.</param>
+    public void ShowQuickAsk(OpenWindow? foreground = null)
+    {
+        if (_quickAskWindow is null)
+        {
+            _quickAskWindow = new Views.QuickAskWindow();
+            _quickAskWindow.Closed += (_, _) => _quickAskWindow = null;
+        }
+        _quickAskWindow.Show();
+        if (_quickAskWindow.WindowState == WindowState.Minimized) _quickAskWindow.WindowState = WindowState.Normal;
+        _quickAskWindow.Activate();
+        _quickAskWindow.Summon(foreground);
+    }
+
+    /// <summary>Adds a note made outside the notes window (AI answers, day summaries). An open notes window keeps
+    /// its own list and writes it back on save, so the note must go through that list.</summary>
+    public void AddNote(NoteItem note)
+    {
+        if (_notesWindow is not null)
+        {
+            _notesWindow.AddNote(note);
+        }
+        else
+        {
+            var notes = NotesService.Load();
+            notes.Add(note);
+            NotesService.Save(notes);
+        }
+        WorkLogService.LogNote(note);
+    }
+
+    /// <summary>Gives a note the AI's title and tags, unless the user titled it in the meantime.</summary>
+    /// <param name="untitled">The title the note was saved with (taken from its first words).</param>
+    public void ApplyAiTitle(Guid id, string untitled, string title, IReadOnlyList<string> tags)
+    {
+        if (_notesWindow is not null)
+        {
+            _notesWindow.ApplyAiTitle(id, untitled, title, tags);
+            return;
+        }
+        try
+        {
+            var notes = NotesService.Load();
+            var note = notes.FirstOrDefault(n => n.Id == id);
+            if (note is null || note.Title != untitled) return;
+            note.Title = title;
+            note.Tags = MergeTags(note.Tags, tags);
+            NotesService.Save(notes);
+        }
+        catch
+        {
+            // the note keeps the title made from its first words
+        }
+    }
+
+    /// <summary>"#work" + ["work", "ideas"] → "#work #ideas".</summary>
+    public static string MergeTags(string existing, IEnumerable<string> tags)
+    {
+        var all = existing.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries).ToList();
+        foreach (var tag in tags)
+            if (!all.Any(t => t.TrimStart('#').Equals(tag, StringComparison.OrdinalIgnoreCase)))
+                all.Add("#" + tag);
+        return string.Join(" ", all);
+    }
+
+    private readonly Avalonia.Threading.DispatcherTimer _daySummaryTimer = new() { Interval = TimeSpan.FromMinutes(1) };
+    private bool _daySummaryRunning;
+
+    /// <summary>Once per working day, when working hours end, writes an AI summary of the day into a note.</summary>
+    private void CheckDaySummary()
+    {
+        if (!Config.AiDaySummary || !Config.WorkLogEnabled || !WorkLogService.IsSupported || _daySummaryRunning) return;
+        var hours = new WorkHours(Config);
+        var now = DateTime.Now;
+        var end = DateTime.Today + hours.End;
+        if (end > now) end = end.AddDays(-1);
+        // a night shift (end before start) belongs to the day it started
+        var shiftDay = hours.End > hours.Start ? end.Date : end.Date.AddDays(-1);
+        if (!hours.Days[(int)shiftDay.DayOfWeek] || Config.AiDaySummaryLast >= end) return;
+
+        Config.AiDaySummaryLast = end;
+        try { ConfigService.Save(Config); } catch { return; }
+        if (now - end > TimeSpan.FromHours(12)) return; // the app wasn't running then; don't summarise an old day
+
+        _daySummaryRunning = true;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var summary = WorkLogService.Summarize(shiftDay, end.Date, hours);
+                if (summary.ActiveSeconds < 15 * 60) return; // a day off, or the PC was barely used
+                var result = await AiService.AskAsync(AiPrompts.WorkReport(WorkLogService.ToAiContext(summary, hours)));
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    if (!result.Ok)
+                    {
+                        Views.ToastWindow.ShowToast("Day summary failed", result.Text, ShowSettings, 20);
+                        return;
+                    }
+                    var note = new NoteItem
+                    {
+                        Title = $"Day summary {shiftDay:ddd yyyy-MM-dd}",
+                        Tags = "#summary #ai",
+                        Html = NoteDocument.ToHtml(NoteDocument.FromMarkdown(
+                            $"Active time {WorkLogService.FormatDuration(summary.ActiveSeconds)} ({summary.WorkHoursFilter})\n\n" +
+                            AiService.StripOuterFence(result.Text))),
+                    };
+                    try
+                    {
+                        AddNote(note);
+                        Views.ToastWindow.ShowToast("Day summary saved", note.Title + " — click to open it.", () => ShowNote(note.Id), 20);
+                    }
+                    catch (Exception ex)
+                    {
+                        Views.ToastWindow.ShowToast("Day summary failed", "Could not save the note: " + ex.Message, seconds: 20);
+                    }
+                });
+            }
+            catch
+            {
+                // reading the log failed; try again tomorrow
+            }
+            finally
+            {
+                _daySummaryRunning = false;
+            }
+        });
+    }
+
     public void ExitApp()
     {
         WorkLogService.Stop();
         TimerService.Stop();
+        HotkeyService.Stop();
         IsExiting = true;
         if (_trayIcon is not null) _trayIcon.IsVisible = false;
         (ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown();
@@ -225,6 +384,10 @@ public partial class App : Application
         var newNote = new NativeMenuItem("New Note…");
         newNote.Click += (_, _) => ShowNotes(newNote: true);
         menu.Add(newNote);
+        var ask = new NativeMenuItem(string.IsNullOrWhiteSpace(Config.AiHotkey) || HotkeyError is not null
+            ? "Ask AI…" : $"Ask AI…  ({Config.AiHotkey})");
+        ask.Click += (_, _) => ShowQuickAsk();
+        menu.Add(ask);
         if (Config.TimestampButtonEnabled)
         {
             var copyTime = new NativeMenuItem("Copy Time");

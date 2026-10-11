@@ -342,6 +342,62 @@ public static class WorkLogService
             .ToList();
     }
 
+    /// <summary>The window in front right now (Windows only), e.g. for the AI's {current_app}.</summary>
+    public static OpenWindow? Foreground()
+    {
+        if (!IsSupported) return null;
+        try { return NativeWin.GetForeground(); }
+        catch { return null; }
+    }
+
+    /// <summary>Consecutive samples of the same window merged into sessions ("10-11 09:05–09:47 (42m) [Code] title").
+    /// Short sessions are left out until the list fits <paramref name="maxLines"/>.</summary>
+    public static List<string> Timeline(DateTime fromDay, DateTime toDay, WorkHours? workHours = null, int maxLines = 400)
+    {
+        var sessions = new List<(DateTime Start, DateTime End, string App, string Title, double Seconds)>();
+        foreach (var (_, when, root) in ReadLines(fromDay, toDay))
+        {
+            if (Str(root, "k") != "s" || workHours is not null && !workHours.Contains(when)) continue;
+            if (!root.TryGetProperty("sec", out var s) || !s.TryGetDouble(out var sec)) continue;
+            var app = Str(root, "app");
+            var title = Str(root, "title");
+            if (sessions.Count > 0)
+            {
+                var last = sessions[^1];
+                if (last.App == app && last.Title == title && when - last.End < TimeSpan.FromSeconds(Math.Max(60, sec * 3)))
+                {
+                    sessions[^1] = (last.Start, when, app, title, last.Seconds + sec);
+                    continue;
+                }
+            }
+            sessions.Add((when.AddSeconds(-sec), when, app, title, sec));
+        }
+
+        var kept = sessions;
+        foreach (var min in new[] { 60, 120, 300, 600, 1200, 1800, 3600 })
+        {
+            kept = sessions.Where(x => x.Seconds >= min).ToList();
+            if (kept.Count <= maxLines) break;
+        }
+        var multiDay = fromDay.Date != toDay.Date;
+        return kept.TakeLast(maxLines).Select(x =>
+            $"{(multiDay ? x.Start.ToString("MM-dd ") : "")}{x.Start:HH:mm}–{x.End:HH:mm} ({FormatDuration(x.Seconds)}) [{x.App}] {Truncate(x.Title, 120)}").ToList();
+    }
+
+    /// <summary>The summary plus the timeline of sessions: what the AI reads to report on a period.</summary>
+    public static string ToAiContext(Summary summary, WorkHours? workHours)
+    {
+        var sb = new StringBuilder(ToMarkdown(summary));
+        var timeline = Timeline(summary.From, summary.To, workHours);
+        if (timeline.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Timeline (window sessions, short ones left out)");
+            foreach (var line in timeline) sb.AppendLine("- " + line);
+        }
+        return sb.ToString();
+    }
+
     public static string FormatDuration(double seconds)
     {
         var ts = TimeSpan.FromSeconds(seconds);

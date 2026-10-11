@@ -177,6 +177,57 @@ public partial class NoteEditor : UserControl
         Changed?.Invoke();
     }
 
+    /// <summary>A block and the text selected in it, taken before a menu or dialog moves the focus away.</summary>
+    public sealed record EditorSelection(object Block, int Start, int End, string Text, string BlockText);
+
+    /// <summary>The block last edited and its selection (<see cref="EditorSelection.Text"/> is empty when nothing is selected).</summary>
+    public EditorSelection? CaptureSelection()
+    {
+        if (_active is not { } row || !_rows.Contains(row) || row.Block.Kind == BlockKind.Divider) return null;
+        var text = row.Edit.Text ?? "";
+        var (s, e) = row.Editing ? Selection(row.Edit) : (text.Length, text.Length);
+        return new EditorSelection(row, s, e, text[s..e], text);
+    }
+
+    /// <summary>Replaces a captured selection; several lines become several blocks. False when the block was removed
+    /// or the selected text is no longer there.</summary>
+    public bool ReplaceSelection(EditorSelection selection, string text)
+    {
+        if (selection.Block is not Row row || !_rows.Contains(row) || selection.Text.Length == 0) return false;
+        var current = row.Edit.Text ?? "";
+        var start = selection.Start;
+        if (start + selection.Text.Length > current.Length || string.CompareOrdinal(current, start, selection.Text, 0, selection.Text.Length) != 0)
+        {
+            start = current.IndexOf(selection.Text, StringComparison.Ordinal); // edited since: find it again
+            if (start < 0) return false;
+        }
+        var end = start + selection.Text.Length;
+        if (!row.Block.HasMarkup)
+        {
+            SetText(row, current[..start] + text + current[end..]);
+            FocusRow(row, start + text.Length);
+            Changed?.Invoke();
+            return true;
+        }
+        FocusRow(row, start, end);
+        InsertPlain(row, text.Trim());
+        return true;
+    }
+
+    /// <summary>Inserts blocks after the captured block, at the start, or at the end of the note.</summary>
+    public void InsertBlocks(IReadOnlyList<NoteBlock> blocks, EditorSelection? after = null, bool atStart = false)
+    {
+        if (blocks.Count == 0) return;
+        var index = atStart ? 0 : after?.Block is Row r && _rows.Contains(r) ? _rows.IndexOf(r) + 1 : _rows.Count;
+        var emptyOnly = _rows.Count == 1 && _rows[0].Block.Kind == BlockKind.Paragraph && _rows[0].Block.Text.Length == 0 ? _rows[0] : null;
+        Row? last = null;
+        foreach (var block in blocks) last = AddRow(index++, block);
+        if (emptyOnly is not null) RemoveRow(emptyOnly);
+        RefreshLists();
+        if (last is not null && last.Block.Kind != BlockKind.Divider) FocusRow(last, last.Block.Text.Length);
+        Changed?.Invoke();
+    }
+
     // ---- rows -------------------------------------------------------------------
 
     private Row? ActiveRow()

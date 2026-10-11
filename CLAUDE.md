@@ -28,6 +28,11 @@ dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 | `Services/NotesService.cs` | Reads and writes `notes.json`. Also holds search, `HtmlToMarkdown` / `ToMarkdown` / `ToHtml` (export). |
 | `Services/NoteDocument.cs` | Note body model for the visual editor: `Parse` (HTML, incl. old `• `/`1. `/`◷` plain lines → `NoteBlock`s), `ToHtml`, `ToMarkdown`, and the inline markup (`**b**`, `*i*`, `` `c` ``, `[t](u)`) ↔ HTML conversion. |
 | `Services/TimestampService.cs` | Timestamp formats: .NET date formats, or a template whose `{…}` parts are formatted (InvariantCulture). |
+| `Services/AiService.cs` | Runs the AI CLI (`AskAsync`, never throws): provider `claude` → `claude -p --model <AiModel>` (default `claude-haiku-5-5`), `custom` → `AiCommand`, `kiro` → not supported yet. Prompt on stdin (UTF-8), started in an empty temp folder. Also `{placeholder}` expansion, `ExtractJson`, `ExtractCode`, `StripOuterFence`. |
+| `Services/AiPrompts.cs` | Every AI prompt (work report, timesheet, note rewrites, minutes, title/tags, explain/generate script, timer from text). |
+| `Services/HotkeyService.cs` | The global "Ask AI" hotkey: `RegisterHotKey` on its own message-loop thread (Windows). |
+| `Views/AiResultWindow.axaml(.cs)` | Shared dialog: runs an AI request (Stop / Try again), shows the editable answer and action buttons; returns `(action, text)`. |
+| `Views/QuickAskWindow`, `Views/AiScriptWindow` | Ask AI (single instance via `App.ShowQuickAsk`), and write-a-script-with-AI. |
 | `Views/NoteEditor.axaml(.cs)` | The WYSIWYG note editor (a UserControl): one row per block, each with a rendered `TextBlock` and a `TextBox` that is shown only while that block is edited. |
 | `Views/*` | One window per feature. `ToastWindow.cs` is the corner pop-up, built in code only. `UiHelpers.cs` holds `Dialogs.Confirm`. |
 
@@ -81,6 +86,11 @@ All under `%APPDATA%\ScriptAppDashboard`, or the folder in the `SCRIPTAPPDASHBOA
 - **Work-log time accounting:**
   - Samples skip idle time (`GetLastInputInfo`) and the lock screen (`LockApp`).
   - Elapsed time is capped at twice the sample interval, so sleep or hibernate isn't counted.
+- **AI:**
+  - Notes made outside the notes window (AI answers, day summaries) go through `App.AddNote`: an open `NotesWindow` keeps its own list and would overwrite `notes.json` on its next save.
+  - The notes AI menu captures the selection (`NoteEditor.CaptureSelection`) in the button's `Click` before showing the flyout; the flyout takes focus and the TextBox drops its selection.
+  - Answers are Markdown; `NoteDocument.FromMarkdown` turns them into blocks (tables become Raw `<table>` blocks).
+  - The end-of-day summary runs from a 1-minute timer in `App` (`AiDaySummaryLast` makes it once per working day).
 - **Non-ASCII in .ps1 test scripts:** characters like `◷` and `•` get mangled in .ps1 files saved without a BOM. Build them with `[char]0x25F7`.
 
 ## Testing (no unit-test project)
@@ -99,4 +109,5 @@ All under `%APPDATA%\ScriptAppDashboard`, or the folder in the `SCRIPTAPPDASHBOA
   - Back up `config.json` before injecting test timers or settings, and restore it afterwards.
   - Remove only the test lines you added to today's `worklog/*.jsonl`; it also holds the user's real activity.
   - Delete test notes when you're done.
+- **AI in UI tests:** each call takes 5–20 s with Haiku. `AiResultWindow` dialogs are owned windows, so look for them among the owner's child windows too. Text typed with SendKeys can be rewritten by a Vietnamese (Telex) input method; set values with `ValuePattern` instead.
 - **Idle rule during tests:** automated tests produce no keyboard or mouse input, so after 5 min the work log records nothing. That is correct behaviour, not a bug.

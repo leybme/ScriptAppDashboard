@@ -27,6 +27,16 @@ public partial class TimersWindow : Window
     public TimersWindow()
     {
         InitializeComponent();
+        PlaceholderHint.Text = "Filled in when the timer fires: " +
+                               string.Join(" · ", AiService.Placeholders.Select(p => $"{p.Name} {p.Description}"));
+        ApplyAiCommandHint();
+        AppRef.SettingsChanged += ApplyAiCommandHint;
+        DescribeBox.KeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Enter) return;
+            e.Handled = true;
+            Describe_Click(null, new RoutedEventArgs());
+        };
         RefreshList(null);
         TimerService.Ran += OnTimerRan;
         _countdown.Tick += (_, _) => UpdateCountdowns();
@@ -37,6 +47,7 @@ public partial class TimersWindow : Window
         {
             TimerService.Ran -= OnTimerRan;
             AppRef.TimersPauseChanged -= ApplyPause;
+            AppRef.SettingsChanged -= ApplyAiCommandHint;
             _countdown.Stop();
         };
     }
@@ -217,8 +228,10 @@ public partial class TimersWindow : Window
             },
             3 => new IntervalTimerItem
             {
-                Name = "AI check-in", IntervalMinutes = 60, Action = "ai", AiCommand = "claude -p",
-                Prompt = "In two sentences, remind me to review my open tasks and pick the next most valuable one.",
+                Name = "AI check-in", IntervalMinutes = 60, Action = "ai",
+                Prompt = "It is {time}. Here is what I've done on my computer today:\n{today_summary}\n\n" +
+                         "In at most three sentences: what I've mostly been working on, whether I seem distracted, " +
+                         "and the most valuable thing to do next.",
             },
             _ => new IntervalTimerItem { Name = "Scheduled command", IntervalMinutes = 15, Action = "command" },
         };
@@ -230,6 +243,63 @@ public partial class TimersWindow : Window
         TemplateCombo.SelectedIndex = 0;
         _suppress = false;
         NameBox.Focus();
+    }
+
+    private void ApplyAiCommandHint() => AiCommandBox.Watermark = AiService.Command;
+
+    private bool _describing;
+
+    /// <summary>Lets the AI turn a sentence into a timer; it is loaded into the editor unsaved, for review.</summary>
+    private async void Describe_Click(object? sender, RoutedEventArgs e)
+    {
+        var description = (DescribeBox.Text ?? "").Trim();
+        if (_describing) return;
+        if (description.Length == 0)
+        {
+            StatusText.Text = "Describe the timer first, e.g. “remind me to drink water every 40 minutes”.";
+            DescribeBox.Focus();
+            return;
+        }
+        _describing = true;
+        DescribeButton.IsEnabled = false;
+        StatusText.Text = $"✨ Asking {AiService.DisplayName} to set up the timer…";
+        try
+        {
+            var result = await AiService.AskAsync(AiPrompts.CreateTimer(description));
+            if (!result.Ok)
+            {
+                StatusText.Text = "AI failed: " + result.Text;
+                return;
+            }
+            if (AiService.ExtractJson(result.Text) is not { } json)
+            {
+                StatusText.Text = "The AI's answer wasn't a timer — try describing it differently.";
+                return;
+            }
+            var action = AiService.Str(json, "action");
+            var timer = new IntervalTimerItem
+            {
+                Name = AiService.Str(json, "name"),
+                IntervalMinutes = json.TryGetProperty("intervalMinutes", out var m) && m.TryGetDouble(out var minutes)
+                    ? Math.Max(5 / 60.0, minutes) : 30,
+                Action = Actions.Contains(action) ? action : "beep",
+                Command = AiService.Str(json, "command"),
+                Prompt = AiService.Str(json, "prompt"),
+                Message = AiService.Str(json, "message"),
+                Notify = !json.TryGetProperty("notify", out var n) || n.ValueKind != System.Text.Json.JsonValueKind.False,
+            };
+            _current = null;
+            TimerList.SelectedItem = null;
+            LoadEditor(timer);
+            StatusText.Text = timer.Action == "command"
+                ? "✨ Filled in by AI — check the command carefully, then press Save (Ctrl+S)."
+                : "✨ Filled in by AI — check it, then press Save (Ctrl+S).";
+        }
+        finally
+        {
+            _describing = false;
+            DescribeButton.IsEnabled = true;
+        }
     }
 
     private void New_Click(object? sender, RoutedEventArgs e)
@@ -272,10 +342,10 @@ public partial class TimersWindow : Window
             CommandBox.Focus();
             return null;
         }
-        if (draft.Action == "ai" && (draft.AiCommand.Length == 0 || draft.Prompt.Trim().Length == 0))
+        if (draft.Action == "ai" && draft.Prompt.Trim().Length == 0)
         {
-            StatusText.Text = "Enter both the AI CLI command and a prompt.";
-            (draft.AiCommand.Length == 0 ? AiCommandBox : PromptBox).Focus();
+            StatusText.Text = "Enter the prompt to send to the AI.";
+            PromptBox.Focus();
             return null;
         }
 

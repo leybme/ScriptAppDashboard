@@ -65,6 +65,46 @@ public partial class WorkLogWindow : Window
         InfoText.Text = "Summary copied — paste it into an AI chat or a note for analysis.";
     }
 
+    private async void AiReport_Click(object? sender, RoutedEventArgs e) => await AskAiAsync(timesheet: false);
+
+    private async void AiTimesheet_Click(object? sender, RoutedEventArgs e) => await AskAiAsync(timesheet: true);
+
+    /// <summary>Sends the period on screen (with its timeline) to the AI; the answer can be saved as a note.</summary>
+    private async Task AskAiAsync(bool timesheet)
+    {
+        if (_summary is not { } s) return;
+        if (s.ActiveSeconds == 0)
+        {
+            InfoText.Text = "Nothing recorded for this range — there is nothing for the AI to report on.";
+            return;
+        }
+        var hours = s.WorkHoursFilter is null ? null : new WorkHours(AppRef.Config);
+        var range = s.From == s.To ? $"{s.From:ddd yyyy-MM-dd}" : $"{s.From:yyyy-MM-dd} – {s.To:yyyy-MM-dd}";
+        var heading = (timesheet ? "Timesheet " : "Work report ") + range;
+        var choice = await AiResultWindow.Show(this, heading, ct => Task.Run(() =>
+        {
+            var context = WorkLogService.ToAiContext(s, hours);
+            return AiService.AskAsync(timesheet ? AiPrompts.Timesheet(context) : AiPrompts.WorkReport(context), ct);
+        }, ct), ("note", "Save as note"));
+        if (choice is not { } c) return;
+
+        var note = new Models.NoteItem
+        {
+            Title = heading,
+            Tags = timesheet ? "#timesheet #ai" : "#report #ai",
+            Html = NoteDocument.ToHtml(NoteDocument.FromMarkdown(AiService.StripOuterFence(c.Text))),
+        };
+        try
+        {
+            AppRef.AddNote(note);
+            AppRef.ShowNote(note.Id);
+        }
+        catch (Exception ex)
+        {
+            InfoText.Text = "Could not save the note: " + ex.Message;
+        }
+    }
+
     private void OpenFolder_Click(object? sender, RoutedEventArgs e)
     {
         try

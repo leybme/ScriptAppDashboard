@@ -33,8 +33,10 @@ public partial class MainWindow : Window
         InitializeComponent();
         RefreshTiles();
         ApplyTimestampButton();
+        ApplyAskAiTip();
         AppRef.SettingsChanged += ApplyTimestampButton;
         AppRef.SettingsChanged += UpdateToday;
+        AppRef.SettingsChanged += ApplyAskAiTip;
         _todayTimer.Tick += (_, _) => UpdateToday();
         _todayTimer.Start();
         Opened += (_, _) => UpdateToday();
@@ -43,6 +45,7 @@ public partial class MainWindow : Window
         {
             AppRef.SettingsChanged -= ApplyTimestampButton;
             AppRef.SettingsChanged -= UpdateToday;
+            AppRef.SettingsChanged -= ApplyAskAiTip;
             _todayTimer.Stop();
         };
     }
@@ -215,11 +218,14 @@ public partial class MainWindow : Window
         edit.Click += async (_, _) => await EditItem(item);
         var openFolder = new MenuItem { Header = "Open Containing Folder" };
         openFolder.Click += (_, _) => OpenFolder(item);
+        var explain = new MenuItem { Header = "Explain with AI…" };
+        explain.Click += async (_, _) => await ExplainItem(item);
         var remove = new MenuItem { Header = "Remove" };
         remove.Click += async (_, _) => await RemoveItem(item);
         menu.Items.Add(run);
         menu.Items.Add(edit);
         menu.Items.Add(openFolder);
+        menu.Items.Add(explain);
         menu.Items.Add(new Separator());
         menu.Items.Add(remove);
         tile.ContextMenu = menu;
@@ -286,6 +292,73 @@ public partial class MainWindow : Window
             SaveAndRefresh($"Added “{added.Name}” from running processes.");
         });
         await scan.ShowDialog(this);
+    }
+
+    private async void AiScriptButton_Click(object? sender, RoutedEventArgs e)
+    {
+        var result = await new AiScriptWindow().ShowDialog<ScriptItem?>(this);
+        if (result is null) return;
+        Config.Scripts.Add(result);
+        SaveAndRefresh($"Added “{result.Name}” ({result.ScriptPath}).");
+    }
+
+    private void AskAiButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowQuickAsk();
+
+    private void ApplyAskAiTip()
+        => ToolTip.SetTip(AskAiButton, "Ask the AI a quick question" +
+                                       (string.IsNullOrWhiteSpace(Config.AiHotkey) || AppRef.HotkeyError is not null
+                                           ? "" : $" — from any app: {Config.AiHotkey}"));
+
+    /// <summary>Shows what a script does (and anything risky) before it is run, by sending its source to the AI.</summary>
+    private async Task ExplainItem(ScriptItem item)
+    {
+        const int maxChars = 60000;
+        string content;
+        bool truncated;
+        try
+        {
+            if (!File.Exists(item.ScriptPath))
+            {
+                await Dialogs.Message(this, "Explain with AI", $"The file “{item.ScriptPath}” doesn't exist.");
+                return;
+            }
+            var bytes = await File.ReadAllBytesAsync(item.ScriptPath);
+            if (bytes.Take(8000).Contains((byte)0))
+            {
+                await Dialogs.Message(this, "Explain with AI",
+                    $"“{Path.GetFileName(item.ScriptPath)}” is a program, not a text script, so the AI can't read what it does.");
+                return;
+            }
+            content = System.Text.Encoding.UTF8.GetString(bytes);
+            truncated = content.Length > maxChars;
+            if (truncated) content = content[..maxChars];
+        }
+        catch (Exception ex)
+        {
+            await Dialogs.Message(this, "Explain with AI", "Could not read the script: " + ex.Message);
+            return;
+        }
+
+        var interpreter = item.Interpreter == "custom" ? item.CustomCommand : item.Interpreter;
+        var prompt = AiPrompts.ExplainScript(item.ScriptPath, interpreter, item.Arguments, content, truncated);
+        var choice = await AiResultWindow.Show(this, $"What “{item.Name}” does", ct => AiService.AskAsync(prompt, ct),
+            ("note", "Save as note"));
+        if (choice is not { } c) return;
+        var note = new NoteItem
+        {
+            Title = $"Script: {item.Name}",
+            Tags = "#script #ai",
+            Html = NoteDocument.ToHtml(NoteDocument.FromMarkdown($"`{item.ScriptPath}`\n\n" + AiService.StripOuterFence(c.Text))),
+        };
+        try
+        {
+            AppRef.AddNote(note);
+            SetStatus($"Saved the explanation as the note “{note.Title}”.");
+        }
+        catch (Exception ex)
+        {
+            SetStatus("Could not save the note: " + ex.Message);
+        }
     }
 
     private void NoteButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowNotes(newNote: true);

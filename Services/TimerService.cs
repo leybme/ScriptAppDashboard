@@ -127,7 +127,7 @@ public static class TimerService
                 output = timer.Action switch
                 {
                     "command" => RunShell(timer.Command, stdin: null, TimeSpan.FromMinutes(5)),
-                    "ai" => RunShell(timer.AiCommand, stdin: timer.Prompt, TimeSpan.FromMinutes(10)),
+                    "ai" => AskAi(timer),
                     _ => Beep(),
                 };
             }
@@ -144,6 +144,14 @@ public static class TimerService
             WorkLogService.LogTimerRun(timer, output);
             Ran?.Invoke(timer, output);
         });
+    }
+
+    private static string AskAi(IntervalTimerItem timer)
+    {
+        var prompt = AiService.ExpandPlaceholders(timer.Prompt);
+        var result = AiService.AskAsync(prompt, command: timer.AiCommand, timeout: TimeSpan.FromMinutes(10)).GetAwaiter().GetResult();
+        var text = result.Ok ? result.Text : "AI failed: " + result.Text;
+        return text.Length > 8000 ? text[..8000] + "…" : text;
     }
 
     private static string Beep()

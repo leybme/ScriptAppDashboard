@@ -34,6 +34,18 @@ public partial class SettingsWindow : Window
         WorkEndBox.Text = config.WorkHoursEnd;
         FillWorkDays(config);
         FillPresets();
+        foreach (var (id, label) in AiService.ClaudeModels)
+            AiModelCombo.Items.Add(new ComboBoxItem { Content = label, Tag = id });
+        AiModelCombo.SelectedIndex = Math.Max(0, Array.FindIndex(AiService.ClaudeModels, m => m.Id == config.AiModel));
+        AiProviderCombo.SelectedIndex = config.AiProvider == "custom" ? 2 : 0;
+        AiCommandBox.Text = config.AiCommand;
+        AiCommandBox.TextChanged += (_, _) => ApplyAiProvider();
+        ApplyAiProvider();
+        AiLanguageBox.Text = config.AiLanguage;
+        AiHotkeyBox.Text = config.AiHotkey;
+        AiAutoTitleCheck.IsChecked = config.AiAutoTitle;
+        AiDaySummaryCheck.IsChecked = config.AiDaySummary;
+        ApplyAiHints();
 
         _previewTimer.Tick += (_, _) => UpdatePreview();
         _previewTimer.Start();
@@ -83,6 +95,46 @@ public partial class SettingsWindow : Window
         if (WorkHoursPreview is null || _dayChecks[0] is null) return;
         var draft = ReadWorkHours(out var error);
         WorkHoursPreview.Text = draft is null ? error : "Counts as working time: " + new WorkHours(draft).Describe();
+    }
+
+    private void ApplyAiHints()
+    {
+        AiHotkeyText.Text = !OperatingSystem.IsWindows()
+            ? "Global hotkeys work on Windows only — use the tray menu’s “Ask AI…”."
+            : AppRef.HotkeyError ?? "Opens “Ask AI” from any app. Keys: Ctrl, Alt, Shift, Win + a letter, digit, F1–F24 or Space.";
+        AiDaySummaryText.Text = $"Working hours: {new WorkHours(AppRef.Config).Describe()} (Work log tab). " +
+                                "Needs the work log; skipped on days with under 15 minutes of activity.";
+    }
+
+    private string SelectedProvider => AiProviderCombo.SelectedItem is ComboBoxItem { Tag: string p } ? p : "claude";
+
+    private string SelectedModel => AiModelCombo.SelectedItem is ComboBoxItem { Tag: string m } ? m : AiService.DefaultModel;
+
+    /// <summary>The command the chosen provider / model / custom text will run.</summary>
+    private string DraftAiCommand => AiService.CommandFor(SelectedProvider, SelectedModel, AiCommandBox.Text);
+
+    private void AiProvider_Changed(object? sender, SelectionChangedEventArgs e) => ApplyAiProvider();
+
+    private void ApplyAiProvider()
+    {
+        // SelectionChanged fires while the XAML is still loading
+        if (AiModelPanel is null || AiCustomPanel is null || AiCommandPreview is null || AiCommandBox is null) return;
+        var custom = SelectedProvider == "custom";
+        AiModelPanel.IsVisible = !custom;
+        AiCustomPanel.IsVisible = custom;
+        AiCommandPreview.Text = "Runs: " + DraftAiCommand;
+    }
+
+    private async void TestAi_Click(object? sender, RoutedEventArgs e)
+    {
+        var command = DraftAiCommand;
+        TestAiButton.IsEnabled = false;
+        AiTestText.IsVisible = true;
+        AiTestText.Text = $"Asking {command}…";
+        var result = await AiService.AskAsync("Reply with one short friendly sentence confirming you received this test.",
+            command: command, timeout: TimeSpan.FromMinutes(2));
+        TestAiButton.IsEnabled = true;
+        AiTestText.Text = result.Ok ? $"✔ Answered in {result.Elapsed.TotalSeconds:0} s: {result.Text}" : "✖ " + result.Text;
     }
 
     private void FillPresets()
@@ -183,6 +235,13 @@ public partial class SettingsWindow : Window
         config.WorkLogEnabled = LogEnabledCheck.IsChecked == true;
         config.WorkLogSampleSeconds = (int)(SampleBox.Value ?? 30m);
         config.WorkLogIdleMinutes = (int)(IdleBox.Value ?? 5m);
+        config.AiProvider = SelectedProvider;
+        config.AiModel = SelectedModel;
+        config.AiCommand = (AiCommandBox.Text ?? "").Trim();
+        config.AiLanguage = (AiLanguageBox.Text ?? "").Trim();
+        config.AiHotkey = (AiHotkeyBox.Text ?? "").Trim();
+        config.AiAutoTitle = AiAutoTitleCheck.IsChecked == true;
+        config.AiDaySummary = AiDaySummaryCheck.IsChecked == true;
 
         try
         {
@@ -196,8 +255,9 @@ public partial class SettingsWindow : Window
 
         WorkLogService.Restart(config);
         AppRef.NotifySettingsChanged();
+        ApplyAiHints();
 
-        var status = "Saved.";
+        var status = AppRef.HotkeyError is null ? "Saved." : "Saved, but the hotkey could not be registered (see the AI tab).";
         var wantStartup = StartupCheck.IsChecked == true;
         if (StartupCheck.IsEnabled && wantStartup != _startupInitial)
         {

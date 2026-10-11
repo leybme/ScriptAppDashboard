@@ -51,6 +51,30 @@ public class AppConfig
 
     /// <summary>All interval timers are paused until this time; DateTime.MaxValue = until resumed, null = running.</summary>
     public DateTime? TimersPausedUntil { get; set; }
+
+    /// <summary>claude | kiro | custom. Kiro is listed but not supported yet.</summary>
+    public string AiProvider { get; set; } = "claude";
+
+    /// <summary>Model passed to the Claude CLI (--model), e.g. "claude-haiku-5-5".</summary>
+    public string AiModel { get; set; } = "claude-haiku-5-5";
+
+    /// <summary>With the "custom" provider: a CLI that reads a prompt on stdin and prints the answer as text.</summary>
+    public string AiCommand { get; set; } = "";
+
+    /// <summary>Language AI answers are written in; empty = the language of the content.</summary>
+    public string AiLanguage { get; set; } = "";
+
+    /// <summary>Global hotkey that opens "Ask AI" (Windows), e.g. "Ctrl+Alt+Space"; empty = none.</summary>
+    public string AiHotkey { get; set; } = "Ctrl+Alt+Space";
+
+    /// <summary>Ask the AI for a title and tags when a note is saved without a title.</summary>
+    public bool AiAutoTitle { get; set; } = true;
+
+    /// <summary>Write an AI summary of the day into a note when working hours end.</summary>
+    public bool AiDaySummary { get; set; } = true;
+
+    /// <summary>End of the last working day that got a summary (so it is written once).</summary>
+    public DateTime? AiDaySummaryLast { get; set; }
 }
 
 public class IntervalTimerItem
@@ -66,8 +90,10 @@ public class IntervalTimerItem
     /// <summary>Shell command line, used when Action is "command".</summary>
     public string Command { get; set; } = "";
 
-    /// <summary>CLI that reads a prompt on stdin and prints the answer, e.g. "claude -p". Used when Action is "ai".</summary>
-    public string AiCommand { get; set; } = "claude -p";
+    /// <summary>Overrides the app's AI command for this timer (e.g. another model); empty = the one in Settings.</summary>
+    public string AiCommand { get; set; } = "";
+
+    /// <summary>Sent to the AI when Action is "ai"; {placeholders} are filled in first (see AiService.Placeholders).</summary>
     public string Prompt { get; set; } = "";
 
     /// <summary>Show a pop-up in the screen corner when the timer fires.</summary>

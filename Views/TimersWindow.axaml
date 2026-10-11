@@ -36,12 +36,19 @@
 
     <ScrollViewer Grid.Column="1">
       <StackPanel Spacing="8">
+        <DockPanel>
+          <Button x:Name="DescribeButton" DockPanel.Dock="Right" Content="✨ Create with AI" Margin="8,0,0,0"
+                  Click="Describe_Click" AutomationProperties.Name="Create with AI"
+                  ToolTip.Tip="The AI fills in the timer below from your description; check it and press Save"/>
+          <TextBox x:Name="DescribeBox" AutomationProperties.Name="Describe a timer"
+                   Watermark="Describe a timer, e.g. “every 2 hours ask AI what I've been doing and what to do next”"/>
+        </DockPanel>
         <ComboBox x:Name="TemplateCombo" SelectedIndex="0" HorizontalAlignment="Stretch"
                   SelectionChanged="Template_Changed">
           <ComboBoxItem Content="Start from a template…"/>
           <ComboBoxItem Content="Eye break — beep every 20 min"/>
           <ComboBoxItem Content="Stretch / posture — beep every 45 min"/>
-          <ComboBoxItem Content="Hourly AI check-in (claude -p)"/>
+          <ComboBoxItem Content="Hourly AI check-in on what I'm doing"/>
           <ComboBoxItem Content="Run a command every 15 min"/>
         </ComboBox>
 
@@ -73,11 +80,12 @@
         </StackPanel>
 
         <StackPanel x:Name="AiPanel" Spacing="8" IsVisible="False">
-          <TextBlock Text="AI CLI command (the prompt is sent to its standard input)"/>
-          <TextBox x:Name="AiCommandBox" Watermark="claude -p"/>
           <TextBlock Text="Prompt"/>
           <TextBox x:Name="PromptBox" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="90"
-                   Watermark="Summarise what I should focus on next …"/>
+                   Watermark="Here is my day so far: {today_summary} — what should I focus on next?"/>
+          <TextBlock x:Name="PlaceholderHint" FontSize="12" Foreground="Gray" TextWrapping="Wrap"/>
+          <TextBlock Text="AI command for this timer (optional — empty uses the one in Settings → AI)"/>
+          <TextBox x:Name="AiCommandBox"/>
         </StackPanel>
 
         <TextBlock Text="Pop-up message (optional)"/>
