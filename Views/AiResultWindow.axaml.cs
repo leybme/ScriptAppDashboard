@@ -57,6 +57,7 @@ public partial class AiResultWindow : Window
         Closed += (_, _) =>
         {
             _cancel?.Cancel();
+            SpeechService.Stop();
             _clock.Stop();
         };
     }
@@ -96,8 +97,11 @@ public partial class AiResultWindow : Window
         ResultBox.Text = result.Text;
         foreach (var button in _actions) button.IsEnabled = result.Ok;
         CopyButton.IsEnabled = result.Ok;
+        SpeakButton.IsEnabled = result.Ok;
+        EditButton.IsEnabled = result.Ok;
+        EditButton.IsVisible = result.Ok;
+        ShowPreview(result.Ok);
         StatusText.Text = result.Ok ? $"Answered in {result.Elapsed.TotalSeconds:0} s." : "The AI request failed — see the message above.";
-        if (result.Ok) ResultBox.Focus();
     }
 
     private void SetBusy(bool busy)
@@ -109,8 +113,11 @@ public partial class AiResultWindow : Window
         ResultBox.Watermark = busy ? "Waiting for the answer…" : null;
         if (busy)
         {
+            ShowPreview(false);
+            EditButton.IsVisible = false;
             foreach (var button in _actions) button.IsEnabled = false;
             CopyButton.IsEnabled = false;
+            SpeakButton.IsEnabled = false;
             StatusText.Text = $"Asking {AiService.DisplayName}…";
             _clock.Start();
         }
@@ -121,6 +128,31 @@ public partial class AiResultWindow : Window
     }
 
     private async void Retry_Click(object? sender, RoutedEventArgs e) => await RunAsync();
+
+    /// <summary>Shows the answer formatted (read-only) or as editable Markdown text.</summary>
+    private void ShowPreview(bool preview)
+    {
+        PreviewHost.Content = preview ? MarkdownPreview.Build(ResultBox.Text ?? "") : null;
+        PreviewHost.IsVisible = preview;
+        ResultBox.IsVisible = !preview;
+        EditButton.Content = preview ? "✎ Edit" : "Preview";
+        if (!preview && ResultBox.IsEnabled) ResultBox.Focus();
+    }
+
+    private void Edit_Click(object? sender, RoutedEventArgs e) => ShowPreview(!PreviewHost.IsVisible);
+
+    private void Speak_Click(object? sender, RoutedEventArgs e)
+    {
+        if (SpeechService.IsSpeaking)
+        {
+            SpeechService.Stop();
+            return;
+        }
+        var text = ResultBox.SelectedText is { Length: > 0 } picked ? picked : ResultBox.Text ?? "";
+        // Markdown marks would be read as symbols
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"[*`#|]|^\s*-\s+|^\s*-{3,}\s*$", " ", System.Text.RegularExpressions.RegexOptions.Multiline);
+        if (!SpeechService.Speak(text)) StatusText.Text = "No speech voice is available on this system.";
+    }
 
     private async void Copy_Click(object? sender, RoutedEventArgs e)
     {

@@ -335,6 +335,8 @@ public partial class NoteEditor : UserControl
         };
         edit.LostFocus += (_, _) => EndEdit(row);
         edit.PastingFromClipboard += (_, e) => Edit_Paste(row, e);
+        edit.ContextFlyout = null;
+        edit.ContextMenu = TextMenu(row);
         view.PointerPressed += (_, e) => View_PointerPressed(row, e);
         stamp.TextChanged += (_, _) =>
         {
@@ -620,6 +622,19 @@ public partial class NoteEditor : UserControl
     {
         row.Block.Text = text; // set first, so the (possibly late) TextChanged sees no change
         row.Edit.Text = text;
+    }
+
+    /// <summary>The letters or digits around an index (an empty range at the index when it is not on a word).</summary>
+    private static (int Start, int End) WordAt(string text, int index)
+    {
+        index = Math.Clamp(index, 0, text.Length);
+        static bool Part(char c) => char.IsLetterOrDigit(c) || c is '\'' or '’' or '-';
+        int s = index, e = index;
+        while (s > 0 && Part(text[s - 1])) s--;
+        while (e < text.Length && Part(text[e])) e++;
+        while (s < e && !char.IsLetterOrDigit(text[s])) s++; // quotes and dashes around a word are not part of it
+        while (e > s && !char.IsLetterOrDigit(text[e - 1])) e--;
+        return (s, e);
     }
 
     private static (int Start, int End) Selection(TextBox box)
@@ -1085,6 +1100,90 @@ public partial class NoteEditor : UserControl
         }
     }
 
+    /// <summary>Languages offered by "Translate to" (menu text, name sent to the AI).</summary>
+    public static readonly (string Header, string Language)[] TranslateLanguages =
+    {
+        ("English", "English"),
+        ("Vietnamese (Tiếng Việt)", "Vietnamese"),
+        ("Japanese (日本語)", "Japanese"),
+        ("Chinese, Simplified (简体中文)", "Simplified Chinese"),
+        ("Korean (한국어)", "Korean"),
+        ("French (Français)", "French"),
+        ("German (Deutsch)", "German"),
+        ("Spanish (Español)", "Spanish"),
+    };
+
+    /// <summary>Raised by the right-click menu: an AI action ("ask", "explain", "improve", "fix", "shorten",
+    /// "translate:&lt;language&gt;") on the selected text.</summary>
+    public event Action<string, EditorSelection>? SelectionAction;
+
+    /// <summary>The right-click menu of a block: clipboard, read aloud, and AI actions on the selected text.</summary>
+    private ContextMenu TextMenu(Row row)
+    {
+        EditorSelection? selection = null;
+        MenuItem Item(string header, Action action)
+        {
+            var item = new MenuItem { Header = header };
+            item.Click += (_, _) => action();
+            return item;
+        }
+        MenuItem AiItem(string header, string action) => Item(header, () =>
+        {
+            if (selection is { Text.Length: > 0 }) SelectionAction?.Invoke(action, selection);
+        });
+
+        var cut = Item("Cut", () => row.Edit.Cut());
+        var copy = Item("Copy", () => row.Edit.Copy());
+        var paste = Item("Paste", () => row.Edit.Paste());
+        var selectAll = Item("Select all", () => row.Edit.SelectAll());
+        var speak = Item("🔊 Speak", () => SpeakText(row, selection, slow: false));
+        var slow = Item("🔉 Speak slowly", () => SpeakText(row, selection, slow: true));
+        var stop = Item("⏹ Stop speaking", SpeechService.Stop);
+        var explain = AiItem("✨ Explain (for learning English)", "explain");
+        var ask = AiItem("✨ Ask AI about the selection…", "ask");
+        var translate = new MenuItem { Header = "✨ Translate to" };
+        foreach (var (header, language) in TranslateLanguages) translate.Items.Add(AiItem(header, "translate:" + language));
+        var more = new MenuItem { Header = "✨ More AI" };
+        more.Items.Add(AiItem("Improve writing", "improve"));
+        more.Items.Add(AiItem("Fix spelling and grammar", "fix"));
+        more.Items.Add(AiItem("Shorten", "shorten"));
+
+        var menu = new ContextMenu
+        {
+            Items = { cut, copy, paste, selectAll, new Separator(), speak, slow, stop, new Separator(), explain, ask, translate, more },
+        };
+        var prepared = false;
+        void Prepare()
+        {
+            if (prepared) return;
+            prepared = true;
+            _active = row;
+            selection = CaptureSelection(); // the text box keeps its selection while this menu is open; the AI window won't
+            var selected = selection is { Text.Length: > 0 };
+            var hasText = (row.Edit.Text ?? "").Trim().Length > 0;
+            cut.IsEnabled = copy.IsEnabled = selected;
+            selectAll.IsEnabled = hasText;
+            speak.IsEnabled = slow.IsEnabled = hasText;
+            speak.Header = selected ? "🔊 Speak the selection" : "🔊 Speak this paragraph";
+            stop.IsEnabled = SpeechService.IsSpeaking;
+            explain.IsEnabled = ask.IsEnabled = translate.IsEnabled = more.IsEnabled = selected;
+        }
+        // a menu opened from code (right-click on a rendered block) may skip Opening
+        menu.Opening += (_, _) => Prepare();
+        menu.Opened += (_, _) =>
+        {
+            Prepare();
+            prepared = false;
+        };
+        return menu;
+    }
+
+    private static void SpeakText(Row row, EditorSelection? selection, bool slow)
+    {
+        var text = selection is { Text.Length: > 0 } ? selection.Text : row.Edit.Text ?? "";
+        SpeechService.Speak(text, slow);
+    }
+
     private ContextMenu PictureMenu(Row row)
     {
         var open = new MenuItem { Header = "Open picture" };
@@ -1167,9 +1266,19 @@ public partial class NoteEditor : UserControl
 
     private void View_PointerPressed(Row row, PointerPressedEventArgs e)
     {
-        if (!e.GetCurrentPoint(row.View).Properties.IsLeftButtonPressed) return;
+        var props = e.GetCurrentPoint(row.View).Properties;
+        if (!props.IsLeftButtonPressed && !props.IsRightButtonPressed) return;
         var rendered = row.View.TextLayout.HitTestPoint(e.GetPosition(row.View)).TextPosition;
         e.Handled = true;
+        if (props.IsRightButtonPressed)
+        {
+            // like a browser: right-click on a word picks it, then the menu opens on the text box
+            var index = NoteDocument.SourceIndex(row.Spans, rendered, row.Block.Text.Length);
+            var (ws, we) = WordAt(row.Block.Text, index);
+            FocusRow(row, ws, we);
+            Dispatcher.UIThread.Post(() => row.Edit.ContextMenu?.Open(row.Edit));
+            return;
+        }
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && OpenUrlAt(row.Spans, rendered)) return;
         FocusRow(row, NoteDocument.SourceIndex(row.Spans, rendered, row.Block.Text.Length));
     }

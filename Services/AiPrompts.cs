@@ -68,6 +68,30 @@ public static class AiPrompts
             """;
     }
 
+    /// <summary>Explains a word, phrase or sentence for someone learning English; the answer is added below the selection.</summary>
+    public static string ExplainForLearner(string selection, string context)
+    {
+        var native = AiService.Language;
+        var translate = native.Length > 0 && !native.Equals("English", StringComparison.OrdinalIgnoreCase)
+            ? $"- **{native}:** a natural translation\n" : "";
+        return $"""
+            Explain the selected text to someone who is learning English. Use Markdown with these lines (leave out any that
+            don't apply, for example pronunciation for a long sentence):
+            - **Meaning:** a simple definition or paraphrase in plain English
+            {translate}- **Pronunciation:** IPA, and the part of speech for a single word or phrase
+            - **Examples:** two short, natural example sentences (a bullet list)
+            - **Notes:** a common mistake, a collocation or a similar word, only when useful
+            If the selected text is a sentence with a mistake or an unnatural phrase, add a "**Better:**" line with a corrected version.
+            Keep it under 120 words. No preamble and no closing remarks.
+
+            Selected text:
+            {selection}
+
+            Where it appears (context only):
+            {context}
+            """;
+    }
+
     private const string ChartFormat = """
         A chart is a fenced block like this one:
         ```chart bar

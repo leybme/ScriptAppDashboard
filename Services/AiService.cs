@@ -39,16 +39,24 @@ public static class AiService
     /// <summary>The command line every AI feature runs.</summary>
     public static string Command => CommandFor(Provider, _config?.AiModel, _config?.AiCommand);
 
+    /// <summary>Flags for the built-in Claude command. The prompts are plain text, so the model needs no tools and none of
+    /// the user's MCP servers; leaving them out of the request cuts a call from about 7 s to 3 s. (--bare is faster
+    /// still, but it ignores the saved login.)</summary>
+    private const string FastFlags = " --strict-mcp-config --no-session-persistence --tools \"\"";
+
     public static string CommandFor(string provider, string? model, string? custom) => provider switch
     {
-        "custom" => custom?.Trim() is { Length: > 0 } c ? c : $"claude -p --model {DefaultModel}",
-        _ => $"claude -p --model {(string.IsNullOrWhiteSpace(model) ? DefaultModel : model.Trim())}",
+        "custom" => custom?.Trim() is { Length: > 0 } c ? c : $"claude -p --model {DefaultModel}{FastFlags}",
+        _ => $"claude -p --model {(string.IsNullOrWhiteSpace(model) ? DefaultModel : model.Trim())}{FastFlags}",
     };
 
     /// <summary>"Claude Haiku 5.5" or the custom command, for status lines.</summary>
     public static string DisplayName => Provider == "custom"
         ? Command
         : "Claude " + (ClaudeModels.FirstOrDefault(m => m.Id == (_config?.AiModel ?? DefaultModel)).Label?.Split(" —")[0] ?? _config?.AiModel);
+
+    /// <summary>The answer language chosen in Settings; empty when the AI should follow the content.</summary>
+    public static string Language => _config?.AiLanguage?.Trim() ?? "";
 
     /// <summary>The language instruction added to prompts whose answer is shown to the user.</summary>
     public static string LanguageRule => _config?.AiLanguage?.Trim() is { Length: > 0 } lang

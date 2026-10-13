@@ -396,6 +396,9 @@ internal sealed class NoteTableView : GridBlockView
             items.Add(Item("Paste", () => cell.Edit.Paste()));
             items.Add(new Separator());
         }
+        items.Add(Item("🔊 Speak", () => SpeechService.Speak(cell.Edit.SelectedText is { Length: > 0 } picked ? picked : Cells[cell.R][cell.C])));
+        items.Add(Item("⏹ Stop speaking", SpeechService.Stop));
+        items.Add(new Separator());
         items.Add(Item("Insert row above", () => InsertRow(cell.R, cell.C)));
         items.Add(Item("Insert row below", () => InsertRow(cell.R + 1, cell.C)));
         items.Add(Item("Insert column left", () => InsertColumn(cell.C, cell.R)));

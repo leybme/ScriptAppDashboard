@@ -43,6 +43,7 @@ public partial class NotesWindow : Window
         var app =(App)Avalonia.Application.Current!;
         app.SettingsChanged += ApplyTimeButton;
         Editor.PictureError += message => StatusText.Text = message;
+        Editor.SelectionAction += Editor_SelectionAction;
         NotesService.ExternalChange += OnExternalChange;
         Closed += (_, _) =>
         {
@@ -768,9 +769,26 @@ public partial class NotesWindow : Window
         _ => action,
     };
 
-    private async void AiAction_Click(object? sender, RoutedEventArgs e)
+    private void AiAction_Click(object? sender, RoutedEventArgs e)
     {
-        if (sender is not MenuItem { Tag: string action } || _aiBusy) return;
+        if (sender is MenuItem { Tag: string action } && !_aiBusy) RunAiAction(action);
+    }
+
+    /// <summary>An AI action picked from the right-click menu of a block, on the text selected there.</summary>
+    private void Editor_SelectionAction(string action, NoteEditor.EditorSelection selection)
+    {
+        if (_aiBusy)
+        {
+            StatusText.Text = "✨ Still waiting for the AI…";
+            return;
+        }
+        _aiSelection = selection;
+        _aiHtmlSelection = null;
+        RunAiAction(action);
+    }
+
+    private async void RunAiAction(string action)
+    {
         var selection = _codeView ? _aiHtmlSelection?.Text : _aiSelection is { Text.Length: > 0 } sel ? sel.Text : null;
         // charts and HTML blocks survive the round trip, so "Replace the note" keeps them
         var note = Cap(NotesService.NoteToAiMarkdown(CurrentHtml()), 60000);
@@ -820,6 +838,16 @@ public partial class NotesWindow : Window
                     return result with { Text = NotesService.BlocksToAiMarkdown(NoteDocument.ApplyEdits(units, edits)) };
                 };
                 buttons = new[] { ("replace", "Apply to the note"), ("new", "Save as a new note") };
+                break;
+            case "explain":
+                if (selection is null)
+                {
+                    StatusText.Text = "Select a word or sentence first.";
+                    return;
+                }
+                heading = "Explain — " + (selection.Length > 50 ? selection[..50] + "…" : selection).ReplaceLineEndings(" ");
+                prompt = AiPrompts.ExplainForLearner(selection, Cap(_aiSelection?.BlockText ?? "", 1000));
+                buttons = new[] { ("insert", "Insert below") };
                 break;
             case "continue":
                 heading = "Continue writing";

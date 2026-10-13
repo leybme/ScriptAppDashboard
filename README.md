@@ -100,7 +100,7 @@ Many tasks need the current time pasted into a file or a ticket. **Copy time** i
 
 ### AI
 
-The AI features run the [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI in print mode (`claude -p`). The prompt goes to its standard input and its text answer is shown. Install it with `npm install -g @anthropic-ai/claude-code` and sign in once by running `claude` in a terminal. In **Settings → AI** you can:
+The AI features run the [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI in print mode (`claude -p`, started without tools or MCP servers so answers come back quickly). The prompt goes to its standard input and its text answer is shown. Install it with `npm install -g @anthropic-ai/claude-code` and sign in once by running `claude` in a terminal. In **Settings → AI** you can:
 
 - pick the model (Haiku 5.5 by default: fastest and cheapest; Sonnet, Opus or Fable for better writing),
 - choose the language answers are written in,
@@ -110,6 +110,7 @@ Kiro is listed as a provider and will be supported in a later version. The **Tes
 
 - **Ask AI**: a quick question from the main window, the tray, or the global hotkey `Ctrl+Alt+Space` (Windows; set it in Settings). Follow-up questions see the earlier ones. You can include the clipboard or the window you were working in, and save the answer as a note.
 - **Notes**: the **✨ AI** menu improves, shortens, fixes or translates the selected text, or the whole note when nothing is selected. It can also continue writing, summarise the note, extract to-dos, turn raw meeting notes into minutes, and suggest a title and tags. You see the answer first and choose whether to replace, insert or save it as a new note. A note saved without a title gets an AI title and tags automatically.
+- **Learning English**: right-click a word in a note (it is picked for you) or select a sentence first. **🔊 Speak** reads it aloud (or the whole paragraph when nothing is selected; **🔉 Speak slowly** is slower) using the system voice. **✨ Explain (for learning English)** gives the meaning, pronunciation, examples and a translation into your AI answer language (its window shows the answer formatted, with an **✎ Edit** button for the raw text and a **🔊 Speak** button), and the same menu has Ask AI, Translate and the other rewrites.
 - **Ask AI to change the note…**: the first item in the **✨ AI** menu. Type what you want in your own words, such as "read the sales numbers and show them as a bar chart", "turn the list into a table" or "add a total row". The AI changes only the parts it needs to and leaves the rest of the note exactly as it was. With text selected, it works on the selection only.
 - **Work log**: **AI report** writes a standup-style summary of the range on screen (what you worked on, where your focus went, what's next). **AI timesheet** groups the time into projects with hours. Either can be saved as a note. When working hours end, an AI summary of the day is written into a note.
 - **Scripts**: right-click a tile and choose **Explain with AI…** to see what a script does and anything risky before you run it. **AI Script** writes a new script from a description; you review it before it's saved and added as a tile.
