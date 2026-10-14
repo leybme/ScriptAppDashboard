@@ -37,7 +37,8 @@ public partial class NotesWindow : Window
             if (_codeView) HtmlBox.Focus();
             else Editor.FocusStart();
         };
-        Closing += (_, _) => { if (_dirty) SaveCurrent(); };
+        _autoSave.Tick += (_, _) => { _autoSave.Stop(); if (_dirty) SaveCurrent(); };
+        Closing += (_, _) => { _autoSave.Stop(); if (_dirty) SaveCurrent(); };
         HtmlBox.AddHandler(KeyDownEvent, HtmlBox_KeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         ApplyTimeButton();
         var app =(App)Avalonia.Application.Current!;
@@ -179,8 +180,12 @@ public partial class NotesWindow : Window
         var changed = Snapshot() != _baseline;
         if (changed == _dirty) return;
         _dirty = changed;
-        StatusText.Text = changed ? "● Unsaved changes" : "";
+        StatusText.Text = changed ? "● Unsaved changes — saving…" : "";
+        if (changed) { _autoSave.Stop(); _autoSave.Start(); }
+        else _autoSave.Stop();
     }
+
+    private readonly Avalonia.Threading.DispatcherTimer _autoSave = new() { Interval = TimeSpan.FromSeconds(3) };
 
     private string _baseline = "";
 
