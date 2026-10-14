@@ -328,7 +328,7 @@ public partial class NoteEditor : UserControl
             Block = block, Frame = frame, MarkerHost = markerHost, Marker = marker, Stamp = stamp,
             View = view, Edit = edit, Rule = rule, Picture = picture, Content = content,
         };
-        picture.DoubleTapped += (_, _) => OpenPicture(row);
+        picture.Tapped += (_, _) => OpenPicture(row);
         picture.ContextMenu = PictureMenu(row);
         edit.AddHandler(KeyDownEvent, (_, e) => Edit_KeyDown(row, e), RoutingStrategies.Tunnel);
         edit.TextChanged += (_, _) => Edit_TextChanged(row);
@@ -1194,7 +1194,7 @@ public partial class NoteEditor : UserControl
             row.View.Foreground = Muted;
             row.View.IsVisible = true;
         }
-        ToolTip.SetTip(row.Picture, "Small preview (about 2 lines) · double-click to open · right-click for more");
+        ToolTip.SetTip(row.Picture, "Click to enlarge · right-click for more");
         AutomationProperties.SetName(row.Picture, "Picture " + Path.GetFileName(src));
     }
 
@@ -1208,18 +1208,15 @@ public partial class NoteEditor : UserControl
         }
     }
 
+    /// <summary>Switches a picture between the small preview and its full size, inside the note.</summary>
     private static void OpenPicture(Row row)
     {
-        var file = NotesService.ResolveImage(NoteDocument.ImageSrc(row.Block));
-        if (file is null || !File.Exists(file)) return;
-        try
-        {
-            Process.Start(new ProcessStartInfo { FileName = file, UseShellExecute = true });
-        }
-        catch
-        {
-            // no app registered for the picture type
-        }
+        var large = double.IsPositiveInfinity(row.Picture.MaxHeight);
+        row.Picture.MaxHeight = large ? 40 : double.PositiveInfinity;
+        row.Picture.StretchDirection = StretchDirection.DownOnly;
+        ToolTip.SetTip(row.Picture, large
+            ? "Click to enlarge · right-click for more"
+            : "Click to shrink · right-click for more");
     }
 
     /// <summary>Languages offered by "Translate to" (menu text, name sent to the AI).</summary>
@@ -1308,7 +1305,7 @@ public partial class NoteEditor : UserControl
 
     private ContextMenu PictureMenu(Row row)
     {
-        var open = new MenuItem { Header = "Open picture" };
+        var open = new MenuItem { Header = "Enlarge / shrink picture" };
         open.Click += (_, _) => OpenPicture(row);
         var remove = new MenuItem { Header = "Remove picture from note" };
         remove.Click += (_, _) =>
