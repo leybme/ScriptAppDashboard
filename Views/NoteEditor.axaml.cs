@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
@@ -65,6 +66,7 @@ public partial class NoteEditor : UserControl
     {
         InitializeComponent();
         Filler.PointerPressed += Filler_PointerPressed;
+        AddHandler(PointerPressedEvent, (_, _) => { if (_allSelected) ClearAllSelected(); }, RoutingStrategies.Tunnel);
         DragDrop.SetAllowDrop(this, true);
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
         AddHandler(DragDrop.DropEvent, OnDrop);
@@ -306,7 +308,7 @@ public partial class NoteEditor : UserControl
         {
             Stretch = Stretch.Uniform,
             StretchDirection = StretchDirection.DownOnly,
-            MaxHeight = 480,
+            MaxHeight = 40,
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(0, 4),
             IsVisible = false,
@@ -605,6 +607,13 @@ public partial class NoteEditor : UserControl
         row.Edit.SelectionStart = caret;
         row.Edit.SelectionEnd = selectTo >= 0 ? Math.Clamp(selectTo, 0, length) : caret;
         row.Frame.BringIntoView();
+        // a row that was just added has no layout yet: scroll again once it has
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_rows.Contains(row)) return;
+            row.Frame.UpdateLayout();
+            row.Frame.BringIntoView();
+        }, DispatcherPriority.Loaded);
     }
 
     private void EndEdit(Row row)
@@ -684,6 +693,28 @@ public partial class NoteEditor : UserControl
         var (s, end) = Selection(box);
         var none = e.KeyModifiers == KeyModifiers.None;
         var collapsed = s == end;
+        if (_allSelected)
+        {
+            if (e.Key == Key.C && e.KeyModifiers == KeyModifiers.Control)
+            {
+                _ = CopyAllAsync();
+                e.Handled = true;
+                return;
+            }
+            if (e.Key is Key.Delete or Key.Back && none)
+            {
+                DeleteAll();
+                e.Handled = true;
+                return;
+            }
+            if (e.Key is not (Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift)) ClearAllSelected();
+        }
+        if (e.Key == Key.A && e.KeyModifiers == KeyModifiers.Control)
+        {
+            SelectAllBlocks(row);
+            e.Handled = true;
+            return;
+        }
         switch (e.Key)
         {
             case Key.Enter when none:
@@ -712,6 +743,52 @@ public partial class NoteEditor : UserControl
                 if (Move(row, 1, atEnd: false)) e.Handled = true;
                 break;
         }
+    }
+
+    private bool _allSelected;
+    private static readonly IBrush AllSelectedBrush = new SolidColorBrush(Color.FromArgb(70, 60, 130, 220));
+
+    /// <summary>Ctrl+A: selects the whole text of the block; pressed again, highlights every block (Ctrl+C copies, Delete clears).</summary>
+    private void SelectAllBlocks(Row row)
+    {
+        var length = row.Edit.Text?.Length ?? 0;
+        var (s, e) = Selection(row.Edit);
+        var whole = length == 0 || s == 0 && e == length;
+        if (_rows.Count <= 1 || !whole)
+        {
+            row.Edit.SelectAll();
+            return;
+        }
+        _allSelected = true;
+        foreach (var r in _rows) r.Frame.Background = AllSelectedBrush;
+    }
+
+    private void ClearAllSelected()
+    {
+        _allSelected = false;
+        foreach (var r in _rows) r.Frame.Background = null;
+    }
+
+    private async Task CopyAllAsync()
+    {
+        var text = NoteDocument.ToMarkdown(_rows.Select(r => r.Block).ToList(), h => h);
+        if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard) await clipboard.SetTextAsync(text);
+    }
+
+    private void DeleteAll()
+    {
+        ClearAllSelected();
+        var first = _rows.FirstOrDefault();
+        if (first is null) return;
+        foreach (var r in _rows.Skip(1).ToList()) RemoveRow(r);
+        first.Block.Kind = BlockKind.Paragraph;
+        first.Block.Indent = 0;
+        first.Block.Stamp = "";
+        SetText(first, "");
+        ApplyKind(first);
+        RefreshLists();
+        FocusRow(first, 0);
+        Changed?.Invoke();
     }
 
     /// <summary>The visual line the caret is on (wrapped lines count), and how many there are.</summary>
@@ -1072,7 +1149,7 @@ public partial class NoteEditor : UserControl
             row.View.Foreground = Muted;
             row.View.IsVisible = true;
         }
-        ToolTip.SetTip(row.Picture, "Double-click to open · right-click for more");
+        ToolTip.SetTip(row.Picture, "Small preview (about 2 lines) · double-click to open · right-click for more");
         AutomationProperties.SetName(row.Picture, "Picture " + Path.GetFileName(src));
     }
 
