@@ -39,6 +39,7 @@ public partial class NoteEditor : UserControl
         public required TextBox Edit;
         public required Border Rule;
         public required Image Picture;
+        public bool PictureOpen, PictureWasOpen;
         public required Panel Content;
         public GridBlockView? Grid;
         public Bitmap? Bitmap;
@@ -328,7 +329,7 @@ public partial class NoteEditor : UserControl
             Block = block, Frame = frame, MarkerHost = markerHost, Marker = marker, Stamp = stamp,
             View = view, Edit = edit, Rule = rule, Picture = picture, Content = content,
         };
-        picture.DoubleTapped += (_, _) => OpenPicture(row);
+        picture.PointerPressed += (_, e) => Picture_PointerPressed(row, e);
         picture.ContextMenu = PictureMenu(row);
         edit.AddHandler(KeyDownEvent, (_, e) => Edit_KeyDown(row, e), RoutingStrategies.Tunnel);
         edit.TextChanged += (_, _) => Edit_TextChanged(row);
@@ -1199,7 +1200,7 @@ public partial class NoteEditor : UserControl
             row.View.Foreground = Muted;
             row.View.IsVisible = true;
         }
-        ToolTip.SetTip(row.Picture, "Small preview (about 2 lines) · double-click to open · right-click for more");
+        ToolTip.SetTip(row.Picture, "Click to enlarge, click again to shrink · double-click to open in the capture editor · right-click for more");
         AutomationProperties.SetName(row.Picture, "Picture " + Path.GetFileName(src));
     }
 
@@ -1210,6 +1211,55 @@ public partial class NoteEditor : UserControl
             row.Bitmap?.Dispose();
             row.Bitmap = null;
             row.Picture.Source = null;
+        }
+    }
+
+    private const double PictureSmall = 40, PictureLarge = 700;
+
+    /// <summary>One click enlarges the picture in the note, the next one shrinks it again; a double click (which
+    /// undoes the toggle of its first click) opens it in the capture editor.</summary>
+    private void Picture_PointerPressed(Row row, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(row.Picture).Properties.IsLeftButtonPressed) return;
+        e.Handled = true;
+        if (e.ClickCount >= 2)
+        {
+            SetPictureOpen(row, row.PictureWasOpen);
+            OpenInCaptureEditor(row);
+            return;
+        }
+        row.PictureWasOpen = row.PictureOpen;
+        SetPictureOpen(row, !row.PictureOpen);
+    }
+
+    private static void SetPictureOpen(Row row, bool open)
+    {
+        row.PictureOpen = open;
+        row.Picture.MaxHeight = open ? PictureLarge : PictureSmall;
+    }
+
+    /// <summary>Opens the picture as a capture (annotate, OCR, AI). The same picture file reuses its capture.</summary>
+    private static readonly Dictionary<string, Guid> PictureCaptures = new(StringComparer.OrdinalIgnoreCase);
+
+    private static void OpenInCaptureEditor(Row row)
+    {
+        var file = NotesService.ResolveImage(NoteDocument.ImageSrc(row.Block));
+        if (file is null || !File.Exists(file) || Application.Current is not App app) return;
+        try
+        {
+            if (PictureCaptures.TryGetValue(file, out var id) && CaptureService.Load(id) is not null)
+            {
+                app.ShowCapture(id);
+                return;
+            }
+            var before = CaptureService.Load().Select(c => c.Id).ToHashSet();
+            using var stream = File.OpenRead(file);
+            app.OpenCaptureFrom(Pixels.FromImage(stream), new OpenWindow("", Path.GetFileName(file)));
+            if (CaptureService.Load().FirstOrDefault(c => !before.Contains(c.Id)) is { } created) PictureCaptures[file] = created.Id;
+        }
+        catch
+        {
+            OpenPicture(row); // not a picture the capture editor can read
         }
     }
 
