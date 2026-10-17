@@ -1,6 +1,6 @@
 Required Notice: Copyright (c) 2026 Y Nguyen (https://github.com/leybme/ScriptAppDashboard)
 
-Script App Dashboard is free for personal and other noncommercial use under the terms below.
+Toolshed360 is free for personal and other noncommercial use under the terms below.
 Use by or for a company, or any other commercial use, including selling or reselling the
 software or a modified version of it, needs a separate commercial license from the licensor.
 Contact: https://github.com/leybme

@@ -68,7 +68,7 @@ public static class AiService
     {
         get
         {
-            var dir = Path.Combine(Path.GetTempPath(), "ScriptAppDashboard-ai");
+            var dir = Path.Combine(Path.GetTempPath(), "Toolshed360-ai");
             Directory.CreateDirectory(dir);
             return dir;
         }

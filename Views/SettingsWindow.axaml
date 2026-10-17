@@ -35,7 +35,7 @@
           </DockPanel>
           <WrapPanel>
             <Button x:Name="OneDriveButton" Content="Use OneDrive" Margin="0,0,8,4" Click="UseOneDrive_Click"
-                    ToolTip.Tip="Keep the data in a ScriptAppDashboard folder in your OneDrive"/>
+                    ToolTip.Tip="Keep the data in a Toolshed360 folder in your OneDrive"/>
             <Button Content="Choose folder…" Margin="0,0,8,4" Click="ChooseDataFolder_Click"/>
             <Button Content="Only this PC" Margin="0,0,8,4" Click="LocalDataFolder_Click"
                     ToolTip.Tip="Keep the data in the settings folder above (not synced)"/>

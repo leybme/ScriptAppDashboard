@@ -1,8 +1,10 @@
-# Script App Dashboard
+# Toolshed360
+
+*Toolshed360 was called "Script App Dashboard" before. On first start it moves your old settings folder over and updates the auto-start entry, so nothing is lost.*
 
 A small cross-platform (Windows / macOS) desktop app for the people who live in scripts. It launches all your Python tools, shell scripts and utilities from one dashboard, and it also keeps quick notes, runs interval timers and logs where your working time goes. Built with .NET 8 and Avalonia UI.
 
-![Script App Dashboard main window](docs/images/screenshotApp.png)
+![Toolshed360 main window](docs/images/screenshotApp.png)
 
 ## Features
 
@@ -146,10 +148,10 @@ The output lands in `bin/Release/net8.0/<rid>/publish/`. Turn on "Start with the
 
 Ready-made builds for Windows (x64) and macOS (Intel and Apple Silicon) are on the [Releases](https://github.com/leybme/ScriptAppDashboard/releases) page.
 
-- Unzip and run `ScriptAppDashboard.exe` (Windows) or `ScriptAppDashboard` (macOS). No installation is needed.
+- Unzip and run `Toolshed360.exe` (Windows) or `Toolshed360` (macOS). No installation is needed.
 - The binaries are unsigned:
   - On Windows, SmartScreen may warn the first time. Choose "More info → Run anyway".
-  - On macOS, Gatekeeper warns on first launch. Right-click → Open, or run `xattr -d com.apple.quarantine ScriptAppDashboard`.
+  - On macOS, Gatekeeper warns on first launch. Right-click → Open, or run `xattr -d com.apple.quarantine Toolshed360`.
 
 ## CI and automated releases
 
@@ -170,15 +172,15 @@ The pull request template in `.github/PULL_REQUEST_TEMPLATE.md` pre-fills every 
 ## Where your data lives
 
 - **Settings folder (this PC):** settings and scripts are stored in:
-  - `%APPDATA%\ScriptAppDashboard` on Windows,
-  - `~/Library/Application Support/ScriptAppDashboard` on macOS.
+  - `%APPDATA%\Toolshed360` on Windows,
+  - `~/Library/Application Support/Toolshed360` on macOS.
 - **Data folder:** notes, pictures and the work log. By default it is the same folder. Settings → General shows both and has **Open** buttons.
 - **Files in the data folder:**
   - `notes/<id>.json`: one file per note. Older versions kept every note in one `notes.json`; it is split up automatically the first time, and the old file is kept as `notes.json.migrated`.
   - `images/`: pictures used in notes.
   - `worklog/yyyy-MM-dd.jsonl`: the work log, one JSON object per line (`yyyy-MM-dd.<PC name>.jsonl` in a synced folder).
   - `timers.json`: the interval timers, when you share them between PCs.
-- **Using another folder:** set the `SCRIPTAPPDASHBOARD_DATA` environment variable to keep the settings elsewhere, for a portable install or a demo.
+- **Using another folder:** set the `TOOLSHED360_DATA` environment variable to keep the settings elsewhere, for a portable install or a demo.
 
 ### Sync between PCs with OneDrive
 
@@ -197,7 +199,7 @@ In **Settings → General**, press **Use OneDrive** (or **Choose folder…** for
 
 ## License
 
-Script App Dashboard is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
+Toolshed360 is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
 
 - **Free:** personal use, such as your own PC, hobby projects, study or testing. Charities, schools, public research and government bodies may use it for free too. You may change the code for these uses.
 - **Needs a commercial license:** using it in or for a company, or any other commercial use, including selling or reselling the app or a modified version of it.

@@ -26,6 +26,7 @@ public partial class App : Application
     public override void OnFrameworkInitializationCompleted()
     {
         Config = ConfigService.Load();
+        StartupService.MigrateLegacy();
         AiService.Start(Config);
         WorkLogService.Start(Config);
         TimerService.Start(Config);
@@ -426,11 +427,11 @@ public partial class App : Application
 
     private void SetupTrayIcon()
     {
-        using var iconStream = AssetLoader.Open(new Uri("avares://ScriptAppDashboard/Assets/icon.png"));
+        using var iconStream = AssetLoader.Open(new Uri("avares://Toolshed360/Assets/icon.png"));
         _trayIcon = new TrayIcon
         {
             Icon = new WindowIcon(iconStream),
-            ToolTipText = "Script App Dashboard",
+            ToolTipText = "Toolshed360",
         };
         _trayIcon.Clicked += (_, _) => ShowMainWindow();
         RefreshTrayMenu();
@@ -519,7 +520,7 @@ public partial class App : Application
         }
 
         menu.Add(new NativeMenuItemSeparator());
-        var quit = new NativeMenuItem("Quit Script App Dashboard");
+        var quit = new NativeMenuItem("Quit Toolshed360");
         quit.Click += (_, _) => ExitApp();
         menu.Add(quit);
 

@@ -243,7 +243,7 @@ public partial class SettingsWindow : Window
     private void UseOneDrive_Click(object? sender, RoutedEventArgs e)
     {
         if (OneDriveRoot() is not { } root) return;
-        _dataFolderDraft = Path.Combine(root, "ScriptAppDashboard");
+        _dataFolderDraft = Path.Combine(root, "Toolshed360");
         ApplyDataFolder();
     }
 

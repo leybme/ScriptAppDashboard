@@ -14,7 +14,7 @@ namespace ScriptAppDashboard.Services;
 public sealed record OpenWindow(string App, string Title);
 
 /// <summary>
-/// Records what the user works on to daily JSONL files in %APPDATA%\ScriptAppDashboard\worklog.
+/// Records what the user works on to daily JSONL files in %APPDATA%\Toolshed360\worklog.
 /// Line kinds: "s" = foreground sample, "o" = open windows + running scripts snapshot,
 /// "l" = dashboard launch, "t" = interval timer run, "n" = note saved.
 /// </summary>

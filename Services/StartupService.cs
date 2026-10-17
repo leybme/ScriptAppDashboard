@@ -7,15 +7,42 @@ namespace ScriptAppDashboard.Services;
 /// <summary>Registers the app to start when the user logs in (hidden in the tray).</summary>
 public static class StartupService
 {
-    private const string AppName = "ScriptAppDashboard";
+    private const string AppName = "Toolshed360";
+    private const string LegacyAppName = "ScriptAppDashboard";
     private const string RunKey = @"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 
     private static string ExePath => Environment.ProcessPath
-        ?? Path.Combine(AppContext.BaseDirectory, "ScriptAppDashboard.exe");
+        ?? Path.Combine(AppContext.BaseDirectory, "Toolshed360.exe");
 
     private static string PlistPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        "Library", "LaunchAgents", "com.toolshed360.app.plist");
+
+    private static string LegacyPlistPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
         "Library", "LaunchAgents", "com.scriptappdashboard.app.plist");
+
+    /// <summary>If auto-start was set up under the old name, replaces it with an entry that starts this exe.</summary>
+    public static void MigrateLegacy()
+    {
+        try
+        {
+            if (OperatingSystem.IsWindows() && RunReg("query", RunKey, "/v", LegacyAppName) == 0)
+            {
+                RunReg("delete", RunKey, "/v", LegacyAppName, "/f");
+                SetEnabled(true);
+            }
+            else if (OperatingSystem.IsMacOS() && File.Exists(LegacyPlistPath))
+            {
+                File.Delete(LegacyPlistPath);
+                SetEnabled(true);
+            }
+        }
+        catch
+        {
+            // best effort — the user can toggle auto-start in Settings
+        }
+    }
 
     public static bool IsEnabled()
     {
@@ -46,7 +73,7 @@ public static class StartupService
                     <plist version="1.0">
                     <dict>
                         <key>Label</key>
-                        <string>com.scriptappdashboard.app</string>
+                        <string>com.toolshed360.app</string>
                         <key>ProgramArguments</key>
                         <array>
                             <string>{ExePath}</string>

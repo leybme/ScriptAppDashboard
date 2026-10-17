@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for working on Script App Dashboard: a .NET 8 + Avalonia 11.3.2 (Fluent) tray app that launches the user's scripts, plus notes, interval timers and a work log. Targets Windows and macOS. Most features are built and tested on Windows.
+Guidance for working on Toolshed360: a .NET 8 + Avalonia 11.3.2 (Fluent) tray app that launches the user's scripts, plus notes, interval timers and a work log. Targets Windows and macOS. Most features are built and tested on Windows.
 
 ## Build & run
 
@@ -10,8 +10,8 @@ dotnet run                                    # add --minimized to start in the 
 dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 ```
 
-- The debug exe is `bin/Debug/net8.0/ScriptAppDashboard.exe`.
-- A running instance locks it, so kill `ScriptAppDashboard` before rebuilding.
+- The debug exe is `bin/Debug/net8.0/Toolshed360.exe`.
+- A running instance locks it, so kill `Toolshed360` before rebuilding.
 - CI and the tag-triggered release live in `.github/workflows/`; README.md explains how to cut a release.
 
 ## Layout
@@ -41,7 +41,7 @@ dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 
 ## Data files
 
-Settings live in `ConfigDir`: `%APPDATA%\ScriptAppDashboard`, or the folder in the `SCRIPTAPPDASHBOARD_DATA` environment variable.
+Settings live in `ConfigDir`: `%APPDATA%\Toolshed360`, or the folder in the `TOOLSHED360_DATA` environment variable.
 Notes, images and the work log live in `DataDir`: the `DataFolder` setting (e.g. a OneDrive folder shared by several PCs), else `ConfigDir`.
 
 - `config.json` (ConfigDir): scripts, timers and settings.
@@ -116,20 +116,20 @@ Notes, images and the work log live in `DataDir`: the `DataFolder` setting (e.g.
 ## Testing (no unit-test project)
 
 - **Logic:** load the built DLL from **pwsh 7**. Windows PowerShell 5.1 can't load net8 assemblies.
-  `Add-Type -Path bin/Debug/net8.0/ScriptAppDashboard.dll`, then call static methods such as `NotesService.HtmlToMarkdown`, `NoteDocument.Parse` / `ToHtml` (check that the HTML round-trips) or `new WorkHours(config).Contains(...)`.
+  `Add-Type -Path bin/Debug/net8.0/Toolshed360.dll`, then call static methods such as `NotesService.HtmlToMarkdown`, `NoteDocument.Parse` / `ToHtml` (check that the HTML round-trips) or `new WorkHours(config).Contains(...)`.
 - **UI:** run the debug exe and drive it with UIAutomation from pwsh:
   - Find windows by title and buttons by AutomationProperties.Name. `x:Name` becomes the AutomationId.
   - Set text with `ValuePattern`.
   - Take screenshots with `System.Drawing` `CopyFromScreen`.
   - Avalonia `MenuItem`s in flyouts don't respond to `InvokePattern`; click them with the real mouse (`SetCursorPos` + `mouse_event`).
   - Native dialogs (save file) need `SendKeys`.
-- **Demo data / screenshots:** start the exe with `SCRIPTAPPDASHBOARD_DATA` pointing at a scratch folder holding a generated `config.json`, `notes.json` and `worklog/`. Never put the user's real notes or window titles in README images. Check that the captured window really was in front (`GetForegroundWindow`) before saving the image.
+- **Demo data / screenshots:** start the exe with `TOOLSHED360_DATA` pointing at a scratch folder holding a generated `config.json`, `notes.json` and `worklog/`. Never put the user's real notes or window titles in README images. Check that the captured window really was in front (`GetForegroundWindow`) before saving the image.
 - **ValuePattern caret:** after `SetValue` the caret is at 0, so send `{END}` before `{ENTER}` when testing the note editor.
 - **Don't damage the user's data:**
   - Back up `config.json` before injecting test timers or settings, and restore it afterwards.
   - Remove only the test lines you added to today's `worklog/*.jsonl`; it also holds the user's real activity.
   - Delete test notes when you're done.
 - **Clipboard and screenshots in tests** fail when the Windows session is locked (`LogonUI` running, `GetForegroundWindow` = 0). The common file dialog exposes only panes to UIAutomation; type a path with `SendInput` + `KEYEVENTF_UNICODE` (it bypasses a Telex input method).
-- **Headless UI tests** (works while the session is locked): a scratch console project referencing `bin/Debug/net8.0/ScriptAppDashboard.dll` plus `Avalonia.Headless`, `Avalonia.Skia` and `Avalonia.Themes.Fluent` 11.3.2. Host a `NoteEditor` in a `Window`, drive it with `KeyPress` / `KeyTextInput` / `MouseDown`, and save `CaptureRenderedFrame()` as a PNG. Don't add it to the repo.
+- **Headless UI tests** (works while the session is locked): a scratch console project referencing `bin/Debug/net8.0/Toolshed360.dll` plus `Avalonia.Headless`, `Avalonia.Skia` and `Avalonia.Themes.Fluent` 11.3.2. Host a `NoteEditor` in a `Window`, drive it with `KeyPress` / `KeyTextInput` / `MouseDown`, and save `CaptureRenderedFrame()` as a PNG. Don't add it to the repo.
 - **AI in UI tests:** each call takes 5–20 s with Haiku. `AiResultWindow` dialogs are owned windows, so look for them among the owner's child windows too. Text typed with SendKeys can be rewritten by a Vietnamese (Telex) input method; set values with `ValuePattern` instead.
 - **Idle rule during tests:** automated tests produce no keyboard or mouse input, so after 5 min the work log records nothing. That is correct behaviour, not a bug.

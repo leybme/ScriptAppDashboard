@@ -14,11 +14,33 @@ public static class ConfigService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    /// <summary>This PC's settings folder. SCRIPTAPPDASHBOARD_DATA overrides it (tests, demos, portable use).</summary>
+    /// <summary>This PC's settings folder. TOOLSHED360_DATA (or the old SCRIPTAPPDASHBOARD_DATA) overrides it (tests, demos, portable use).</summary>
     public static string ConfigDir =>
-        Environment.GetEnvironmentVariable("SCRIPTAPPDASHBOARD_DATA") is { Length: > 0 } custom
+        (Environment.GetEnvironmentVariable("TOOLSHED360_DATA") is { Length: > 0 } custom
             ? custom
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ScriptAppDashboard");
+            : Environment.GetEnvironmentVariable("SCRIPTAPPDASHBOARD_DATA") is { Length: > 0 } legacy
+                ? legacy
+                : DefaultDir);
+
+    private static string AppDataRoot => Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+    private static string DefaultDir => Path.Combine(AppDataRoot, "Toolshed360");
+
+    /// <summary>The settings folder of the app's old name, "Script App Dashboard".</summary>
+    private static string LegacyDefaultDir => Path.Combine(AppDataRoot, "ScriptAppDashboard");
+
+    /// <summary>Once, moves the old-name settings folder to <see cref="DefaultDir"/> (never overwrites an existing one).</summary>
+    private static void MigrateLegacyDir()
+    {
+        try
+        {
+            if (Directory.Exists(DefaultDir) || !Directory.Exists(LegacyDefaultDir)) return;
+            Directory.Move(LegacyDefaultDir, DefaultDir);
+        }
+        catch
+        {
+            // folder in use or not movable — the new folder starts empty rather than blocking launch
+        }
+    }
 
     private static string? _dataDir;
 
@@ -37,6 +59,7 @@ public static class ConfigService
     public static AppConfig Load()
     {
         var config = new AppConfig();
+        MigrateLegacyDir();
         try
         {
             if (File.Exists(ConfigFile))

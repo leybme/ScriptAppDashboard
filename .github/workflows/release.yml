@@ -44,18 +44,18 @@ jobs:
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path "publish/${{ matrix.rid }}/*" -DestinationPath "ScriptAppDashboard-${{ github.ref_name }}-${{ matrix.rid }}.zip"
+        run: Compress-Archive -Path "publish/${{ matrix.rid }}/*" -DestinationPath "Toolshed360-${{ github.ref_name }}-${{ matrix.rid }}.zip"
 
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
           cd publish/${{ matrix.rid }}
-          zip -r "../../ScriptAppDashboard-${{ github.ref_name }}-${{ matrix.rid }}.zip" .
+          zip -r "../../Toolshed360-${{ github.ref_name }}-${{ matrix.rid }}.zip" .
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ScriptAppDashboard-${{ matrix.rid }}
-          path: ScriptAppDashboard-*.zip
+          name: Toolshed360-${{ matrix.rid }}
+          path: Toolshed360-*.zip
           if-no-files-found: error
 
   release:

@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>ScriptAppDashboard</RootNamespace>
-    <AssemblyName>ScriptAppDashboard</AssemblyName>
+    <AssemblyName>Toolshed360</AssemblyName>
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
     <Authors>Y Nguyen</Authors>
     <Copyright>Copyright (c) 2026 Y Nguyen. PolyForm Noncommercial 1.0.0; commercial use needs a license.</Copyright>
