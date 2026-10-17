@@ -32,7 +32,7 @@
       <Setter Property="Focusable" Value="False"/>
     </Style>
   </Window.Styles>
-  <Grid ColumnDefinitions="260,*" Margin="16">
+  <Grid ColumnDefinitions="260,*,Auto" Margin="16">
     <DockPanel Grid.Column="0" Margin="0,0,12,0">
       <Button DockPanel.Dock="Top" Content="New note" Classes="accent" HorizontalAlignment="Stretch"
               HorizontalContentAlignment="Center" Click="New_Click"/>
@@ -104,6 +104,9 @@
             </MenuFlyout>
           </FlyoutBase.AttachedFlyout>
         </Button>
+        <Button x:Name="ChatButton" Content="💬 Chat" AutomationProperties.Name="AI chat"
+                ToolTip.Tip="Chat with the AI beside the note (Ctrl+J): ask questions about it, or ask for changes — you see them first and press Apply"
+                Click="Chat_Click"/>
       </WrapPanel>
       <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
@@ -137,5 +140,7 @@
                  Watermark="&lt;h3&gt;Idea&lt;/h3&gt;&lt;p&gt;Remember to …&lt;/p&gt;"/>
       </Panel>
     </DockPanel>
+
+    <views:AiChatPanel x:Name="Chat" Grid.Column="2" Width="340" Margin="12,0,0,0" IsVisible="False"/>
   </Grid>
 </Window>

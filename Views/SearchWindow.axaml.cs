@@ -65,21 +65,22 @@ public partial class SearchWindow : Window
         var from = today.AddDays(-(RangeCombo.SelectedIndex switch { 0 => 6, 2 => 89, 3 => 364, _ => 29 }));
         SummaryText.Text = "Searching…";
 
-        var (notes, hits) = await Task.Run(() =>
+        var (notes, hits, captures) = await Task.Run(() =>
         {
             var n = NotesService.Search(NotesService.Load(), query).Take(100).ToList();
             var h = WorkLogService.Search(query, from, today);
-            return (n, h);
+            var c = CaptureService.Search(CaptureService.Load(), query).Take(50).ToList();
+            return (n, h, c);
         });
         if (version != _version) return; // a newer search started meanwhile
 
         ResultHost.Children.Clear();
         var windowSeconds = hits.Where(h => h.Kind == "window").Sum(h => h.Seconds);
-        SummaryText.Text = $"{notes.Count} note(s) · {hits.Count} work-log match(es)" +
+        SummaryText.Text = $"{notes.Count} note(s) · {captures.Count} capture(s) · {hits.Count} work-log match(es)" +
                            (windowSeconds > 0 ? $" · {WorkLogService.FormatDuration(windowSeconds)} spent in matching windows" : "") +
                            (hits.Count >= 200 ? " · showing the first 200" : "");
 
-        if (notes.Count == 0 && hits.Count == 0)
+        if (notes.Count == 0 && hits.Count == 0 && captures.Count == 0)
         {
             ResultHost.Children.Add(new TextBlock
             {
@@ -94,6 +95,12 @@ public partial class SearchWindow : Window
         {
             ResultHost.Children.Add(Header($"Notes ({notes.Count})"));
             foreach (var note in notes) ResultHost.Children.Add(NoteRow(note, query));
+        }
+
+        if (captures.Count > 0)
+        {
+            ResultHost.Children.Add(Header($"Captures ({captures.Count})"));
+            foreach (var capture in captures) ResultHost.Children.Add(CaptureRow(capture));
         }
 
         if (hits.Count > 0)
@@ -144,6 +151,34 @@ public partial class SearchWindow : Window
         });
         var row = Row(panel, "Open this note");
         row.Click += (_, _) => AppRef.ShowNote(note.Id);
+        return row;
+    }
+
+    private Control CaptureRow(CaptureHit hit)
+    {
+        var c = hit.Capture;
+        var panel = new StackPanel { Spacing = 1 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "📷 " + CaptureService.DisplayTitle(c),
+            FontWeight = FontWeight.SemiBold,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"{hit.Where}: {hit.Snippet}",
+            FontSize = 12,
+            Opacity = 0.8,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"{c.Created:yyyy-MM-dd HH:mm}   {c.Tags}".TrimEnd(),
+            FontSize = 11,
+            Foreground = Brushes.Gray,
+        });
+        var row = Row(panel, "Open this capture");
+        row.Click += (_, _) => AppRef.ShowCapture(c.Id);
         return row;
     }
 

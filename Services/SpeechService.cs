@@ -60,6 +60,10 @@ public static class SpeechService
     }
 
     /// <summary>Stops the text being read, if any.</summary>
+    /// <summary>Speaks Markdown text; the marks (*, `, #, |, list dashes) would be read as symbols, so they are dropped.</summary>
+    public static bool SpeakMarkdown(string markdown) => Speak(System.Text.RegularExpressions.Regex.Replace(
+        markdown, @"[*`#|]|^\s*-\s+|^\s*-{3,}\s*$", " ", System.Text.RegularExpressions.RegexOptions.Multiline));
+
     public static void Stop()
     {
         Process? proc;

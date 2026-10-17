@@ -78,6 +78,8 @@ public partial class MainWindow : Window
 
     private void SearchButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowSearch();
 
+    private void CapturesButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowCaptures();
+
     protected override void OnKeyDown(Avalonia.Input.KeyEventArgs e)
     {
         if (e.KeyModifiers == Avalonia.Input.KeyModifiers.Control && e.Key == Avalonia.Input.Key.F)
@@ -302,7 +304,7 @@ public partial class MainWindow : Window
         SaveAndRefresh($"Added “{result.Name}” ({result.ScriptPath}).");
     }
 
-    private void AskAiButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowQuickAsk();
+    private void AskAiButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowNotes(openChat: true);
 
     private void ApplyAskAiTip()
         => ToolTip.SetTip(AskAiButton, "Ask the AI a quick question" +

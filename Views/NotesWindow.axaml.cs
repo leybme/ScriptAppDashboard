@@ -45,11 +45,26 @@ public partial class NotesWindow : Window
         app.SettingsChanged += ApplyTimeButton;
         Editor.PictureError += message => StatusText.Text = message;
         Editor.SelectionAction += Editor_SelectionAction;
+        Chat.GetContext = ChatContext;
+        Chat.ApplyEdits = Chat_ApplyEdits;
+        Chat.Undo = Chat_Undo;
+        Chat.Insert = Chat_Insert;
+        Chat.Pressing += CaptureChatSelection;
+        Chat.SelectionCleared += () => _aiSelection = null;
+        Chat.CloseRequested += () => ShowChat(false);
+        // a new click in the note starts a new selection: what the chat captured before is out of date
+        Editor.AddHandler(GotFocusEvent, (_, _) =>
+        {
+            if (!Chat.IsVisible) return;
+            _aiSelection = null;
+            Chat.SetSelectionPreview(null);
+        }, Avalonia.Interactivity.RoutingStrategies.Bubble);
         NotesService.ExternalChange += OnExternalChange;
         Closed += (_, _) =>
         {
             app.SettingsChanged -= ApplyTimeButton;
             NotesService.ExternalChange -= OnExternalChange;
+            Chat.Stop();
         };
         RefreshList(null);
     }
@@ -206,6 +221,7 @@ public partial class NotesWindow : Window
                 case Key.B: Bold_Click(null, e); e.Handled = true; break;
                 case Key.I: Italic_Click(null, e); e.Handled = true; break;
                 case Key.K: Link_Click(null, e); e.Handled = true; break;
+                case Key.J: ShowChat(!Chat.IsVisible); e.Handled = true; break;
             }
         }
         base.OnKeyDown(e);
@@ -470,6 +486,8 @@ public partial class NotesWindow : Window
         if (_codeView) HtmlBox.Text = note?.Html ?? "";
         else Editor.Load(note?.Html ?? "");
         _suppress = false;
+        if (note is null) Chat.Forget(Guid.Empty);
+        Chat.SetNote(note?.Id ?? Guid.Empty);
         _baseline = Snapshot();
         _dirty = false;
         StatusText.Text = note is null ? "New note" : $"Created {note.Created:yyyy-MM-dd HH:mm}";
@@ -501,6 +519,7 @@ public partial class NotesWindow : Window
         note.Updated = DateTime.Now;
         if (isNew) _notes.Add(note);
         _current = note;
+        if (isNew) Chat.Adopt(Guid.Empty, note.Id);
 
         try
         {
@@ -753,26 +772,121 @@ public partial class NotesWindow : Window
         FlyoutBase.ShowAttachedFlyout(AiButton);
     }
 
-    /// <summary>The last instruction typed for "Ask AI to change the note", offered again next time.</summary>
-    private static string _lastInstruction = "";
-
-    private static readonly string[] InstructionExamples =
-    {
-        "Make a chart from the numbers in this note",
-        "Turn the list into a table",
-        "Add a total row to the table",
-        "Sort the table by the last column, largest first",
-    };
-
     private static string ActionLabel(string action) => action switch
     {
         "ask" => "AI edit",
         "shorten" => "Shorten",
         "fix" => "Fix spelling and grammar",
         "improve" => "Improve writing",
+        "chat" => "AI chat",
         _ when action.StartsWith("translate:") => "Translate to " + action["translate:".Length..],
         _ => action,
     };
+
+    // ---- AI chat beside the note ------------------------------------------------------------
+
+    private bool _chatGrew;
+
+    private void Chat_Click(object? sender, RoutedEventArgs e) => ShowChat(!Chat.IsVisible);
+
+    /// <summary>Shows or hides the chat; the window grows by the panel's width so the note keeps its room.</summary>
+    private void ShowChat(bool show)
+    {
+        if (Chat.IsVisible == show) return;
+        Chat.IsVisible = show;
+        if (show)
+        {
+            if (WindowState == WindowState.Normal)
+            {
+                Width += Chat.Width + Chat.Margin.Left;
+                _chatGrew = true;
+            }
+            Chat.SetNote(_current?.Id ?? Guid.Empty);
+            Chat.FocusInput();
+        }
+        else if (_chatGrew)
+        {
+            Width = Math.Max(MinWidth, Width - Chat.Width - Chat.Margin.Left);
+            _chatGrew = false;
+        }
+    }
+
+    /// <summary>The selection in the note, taken when the pointer goes down in the chat (the note's text box then loses it).</summary>
+    private void CaptureChatSelection()
+    {
+        if (_codeView || !Editor.IsKeyboardFocusWithin) return;
+        var selection = Editor.CaptureSelection();
+        _aiSelection = selection;
+        Chat.SetSelectionPreview(selection?.Text);
+    }
+
+    private AiChatContext ChatContext()
+    {
+        CaptureChatSelection();
+        var selection = _codeView ? null : _aiSelection;
+        return new AiChatContext(CurrentHtml(), (TitleBox.Text ?? "").Trim(),
+            selection is { Text.Length: > 0 } ? selection.Text : null, selection, AppInfo());
+    }
+
+    /// <summary>What the chat is told about the app: the feature guide and the current state of the AI settings, the day summary and the notes.</summary>
+    private string AppInfo()
+    {
+        var config = AppRef.Config;
+        static string OnOff(bool on) => on ? "on" : "off";
+        var summaries = _notes.Where(n => n.Tags.Contains("#summary", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(n => n.Created).Take(3).Select(n => $"“{n.Title}” ({n.Created:yyyy-MM-dd HH:mm})").ToList();
+        var lines = new List<string>
+        {
+            AiPrompts.AppGuide,
+            "",
+            "Current state:",
+            $"- AI: {AiService.DisplayName}; answer language: {(AiService.Language.Length > 0 ? AiService.Language : "follows the content")}.",
+            $"- AI auto title: {OnOff(config.AiAutoTitle)}. AI day summary: {OnOff(config.AiDaySummary)}"
+                + (config.AiDaySummaryLast is { } last ? $", last written for the day ending {last:yyyy-MM-dd HH:mm}." : ", not written yet."),
+            $"- Work log: {OnOff(config.WorkLogEnabled)}; working hours {config.WorkHoursStart}–{config.WorkHoursEnd}; active today {WorkLogService.FormatDuration(WorkLogService.TodayActiveSeconds())}.",
+            $"- Notes: {_notes.Count}. Newest day summaries: {(summaries.Count > 0 ? string.Join("; ", summaries) : "none yet")}.",
+        };
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private void SetNoteHtml(string html)
+    {
+        if (_codeView)
+        {
+            HtmlBox.Text = html;
+            return;
+        }
+        Editor.Load(html);
+        UpdateDirty();
+    }
+
+    private AiChatOutcome Chat_ApplyEdits(string sentHtml, List<NoteDocument.NoteEdit> edits)
+    {
+        var before = CurrentHtml();
+        if (before != sentHtml)
+            return new AiChatOutcome(false, "The note changed since the AI answered, so the block numbers no longer fit. Ask again.");
+        var units = NoteDocument.Units(NoteDocument.Parse(before));
+        SetNoteHtml(NoteDocument.ToHtml(NoteDocument.ApplyEdits(units, edits)));
+        var after = CurrentHtml();
+        if (after == before) return new AiChatOutcome(false, "The AI's commands changed nothing in the note.");
+        return new AiChatOutcome(true, "✨ Applied — press Ctrl+S to keep it, or Undo in the chat.", before, after);
+    }
+
+    private AiChatOutcome Chat_Undo(string before, string after)
+    {
+        if (CurrentHtml() != after)
+            return new AiChatOutcome(false, "The note changed after this was applied, so it can't be undone from here.");
+        SetNoteHtml(before);
+        return new AiChatOutcome(true, "Put the note back.");
+    }
+
+    private string Chat_Insert(string target, string markdown, object? token)
+    {
+        _aiSelection = token as NoteEditor.EditorSelection;
+        _aiHtmlSelection = null;
+        ApplyAiResult("chat", target, markdown, (TitleBox.Text ?? "").Trim());
+        return StatusText.Text ?? "";
+    }
 
     private void AiAction_Click(object? sender, RoutedEventArgs e)
     {
@@ -798,7 +912,12 @@ public partial class NotesWindow : Window
         // charts and HTML blocks survive the round trip, so "Replace the note" keeps them
         var note = Cap(NotesService.NoteToAiMarkdown(CurrentHtml()), 60000);
         var title = (TitleBox.Text ?? "").Trim();
-        if (selection is null && note.Trim().Length == 0 && action != "ask")
+        if (action == "ask")
+        {
+            AskInChat();
+            return;
+        }
+        if (selection is null && note.Trim().Length == 0)
         {
             StatusText.Text = "This note is empty — write something first.";
             return;
@@ -811,39 +930,8 @@ public partial class NotesWindow : Window
 
         string heading, prompt;
         (string, string)[] buttons;
-        Func<System.Threading.CancellationToken, System.Threading.Tasks.Task<AiResult>>? ask = null;
         switch (action)
         {
-            case "ask":
-                if (_codeView) selection = null; // the answer is Markdown, not HTML source
-                var instruction = await Dialogs.Prompt(this, "Ask AI",
-                    selection is null ? "What should the AI change in this note?" : "What should the AI do with the selected text?",
-                    _lastInstruction, "e.g. Show the sales numbers as a bar chart", "Ask", InstructionExamples);
-                if (instruction is null) return;
-                _lastInstruction = instruction;
-                heading = "Ask AI — " + (instruction.Length > 60 ? instruction[..60] + "…" : instruction).ReplaceLineEndings(" ");
-                if (selection is not null)
-                {
-                    prompt = AiPrompts.EditSelection(instruction, note, selection);
-                    buttons = new[] { ("selection", "Replace the selection"), ("insert", "Insert below") };
-                    break;
-                }
-                // the AI answers with edit commands on numbered blocks; the window shows the note with them applied
-                var units = NoteDocument.Units(NoteDocument.Parse(CurrentHtml()));
-                var numbered = string.Join("\n\n", units.Select((u, i) => $"[{i + 1}]\n" + NotesService.BlocksToAiMarkdown(u)));
-                prompt = AiPrompts.EditNote(instruction, Cap(numbered, 60000), units.Count);
-                var editPrompt = prompt;
-                ask = async ct =>
-                {
-                    var result = await AiService.AskAsync(editPrompt, ct);
-                    if (!result.Ok) return result;
-                    var answer = AiService.StripOuterFence(result.Text);
-                    // no commands: the answer is new content; add it at the end rather than lose the note
-                    var edits = NoteDocument.ParseEdits(answer) ?? new List<NoteDocument.NoteEdit> { new("insert after", units.Count, units.Count, answer) };
-                    return result with { Text = NotesService.BlocksToAiMarkdown(NoteDocument.ApplyEdits(units, edits)) };
-                };
-                buttons = new[] { ("replace", "Apply to the note"), ("new", "Save as a new note") };
-                break;
             case "explain":
                 if (selection is null)
                 {
@@ -884,15 +972,44 @@ public partial class NotesWindow : Window
                 break;
         }
 
-        var choice = await AiResultWindow.Show(this, heading, ask ?? (ct => AiService.AskAsync(prompt, ct)), buttons);
-        if (choice is not { } c) return;
-        var answer = AiService.StripOuterFence(c.Text);
-        if (c.Action == "replace" && LooksTruncated(note, answer)
-            && !await Dialogs.Confirm(this, "Replace the note?",
-                "The AI's answer is much shorter than the note, so replacing would remove most of it. "
-                + "To keep the note, choose Cancel and copy what you need from the AI window.", "Replace"))
-            return;
-        ApplyAiResult(action, c.Action, answer, title);
+        // the answer appears in the chat beside the note; its buttons act on the selection as it was now
+        var selectionNow = _aiSelection;
+        var htmlSelectionNow = _aiHtmlSelection;
+        ShowChat(true);
+        Chat.RunRequest(heading, ct => AiService.AskAsync(prompt, ct), buttons, async (choice, text) =>
+        {
+            _aiSelection = selectionNow;
+            _aiHtmlSelection = htmlSelectionNow;
+            var answer = AiService.StripOuterFence(text);
+            if (choice == "replace" && LooksTruncated(note, answer)
+                && !await Dialogs.Confirm(this, "Replace the note?",
+                    "The AI's answer is much shorter than the note, so replacing would remove most of it. "
+                    + "To keep the note, choose Cancel and copy what you need from the chat.", "Replace"))
+                return "Cancelled.";
+            ApplyAiResult(action, choice, answer, title);
+            return StatusText.Text ?? "";
+        });
+    }
+
+    /// <summary>Opens the side chat and focuses its input (the main window's "Ask AI" button).</summary>
+    public void OpenChat()
+    {
+        ShowChat(true);
+        Chat.FocusInput();
+    }
+
+    /// <summary>"Ask AI to change the note…": the chat opens with the selection (if any) as context, ready for the instruction.</summary>
+    private void AskInChat()
+    {
+        var selection = _aiSelection;
+        ShowChat(true);
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            // the note's text box took the focus back when the menu closed, which forgets the selection: restore it
+            _aiSelection = selection;
+            Chat.SetSelectionPreview(selection?.Text);
+            Chat.FocusInput();
+        });
     }
 
     /// <summary>An answer meant to replace the note keeps less than half of its words (it probably holds only the new part).</summary>

@@ -68,7 +68,7 @@ public partial class NoteEditor : UserControl
         Filler.PointerPressed += Filler_PointerPressed;
         AddHandler(PointerPressedEvent, (_, e) => Editor_PointerPressed(e), RoutingStrategies.Tunnel);
         AddHandler(PointerMovedEvent, (_, e) => Editor_PointerMoved(e), RoutingStrategies.Tunnel);
-        AddHandler(PointerReleasedEvent, (_, _) => _dragAnchor = -1, RoutingStrategies.Tunnel);
+        AddHandler(PointerReleasedEvent, (_, _) => { _dragAnchor = -1; _viewDrag = null; }, RoutingStrategies.Tunnel);
         DragDrop.SetAllowDrop(this, true);
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
         AddHandler(DragDrop.DropEvent, OnDrop);
@@ -761,7 +761,11 @@ public partial class NoteEditor : UserControl
         if (wanted.SequenceEqual(_selected)) return;
         ClearAllSelected();
         _selected = wanted;
-        foreach (var r in _selected) r.Frame.Background = AllSelectedBrush;
+        foreach (var r in _selected)
+        {
+            r.Frame.Background = AllSelectedBrush;
+            r.Edit.ClearSelection(); // the text that was selected in the block the drag started in
+        }
     }
 
     private void ClearAllSelected()
@@ -787,6 +791,7 @@ public partial class NoteEditor : UserControl
         if (index == _dragAnchor)
         {
             if (_selected.Count > 0) ClearAllSelected();
+            ExtendViewDrag(e);
             return;
         }
         SelectRange(_dragAnchor, index);
@@ -1402,7 +1407,26 @@ public partial class NoteEditor : UserControl
             return;
         }
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && OpenUrlAt(row.Spans, rendered)) return;
-        FocusRow(row, NoteDocument.SourceIndex(row.Spans, rendered, row.Block.Text.Length));
+        var caret = NoteDocument.SourceIndex(row.Spans, rendered, row.Block.Text.Length);
+        FocusRow(row, caret);
+        // the press went to the rendered text, so the text box never saw it: Editor_PointerMoved selects from here while the button is held
+        if (props.IsLeftButtonPressed) _viewDrag = (row, caret);
+    }
+
+    private (Row Row, int From)? _viewDrag;
+
+    /// <summary>Extends the selection in the block a drag started in (the press landed on its rendered text).</summary>
+    private void ExtendViewDrag(PointerEventArgs e)
+    {
+        if (_viewDrag is not { } drag || !_rows.Contains(drag.Row)) return;
+        var box = drag.Row.Edit;
+        if (box.GetVisualDescendants().OfType<TextPresenter>().FirstOrDefault() is not { TextLayout: { } layout } presenter) return;
+        var hit = layout.HitTestPoint(e.GetPosition(presenter));
+        var length = box.Text?.Length ?? 0;
+        var to = Math.Clamp(hit.TextPosition + (hit.IsTrailing ? 1 : 0), 0, length);
+        box.CaretIndex = to; // first: setting the caret resets the selection
+        box.SelectionStart = Math.Clamp(drag.From, 0, length);
+        box.SelectionEnd = to;
     }
 
     /// <summary>Opens the link under a rendered character position (Ctrl+click); false when there is none.</summary>

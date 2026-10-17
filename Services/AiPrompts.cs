@@ -134,6 +134,68 @@ public static class AiPrompts
         {numberedNote}
         """;
 
+    /// <summary>
+    /// One turn of the chat beside a note. The model either answers (Markdown), or changes the note: a sentence on what
+    /// it changes, then edit commands for <see cref="NoteDocument.ParseEdits"/>. <paramref name="numberedNote"/> is null
+    /// when the user left the note out of the chat.
+    /// </summary>
+    public static string Chat(IReadOnlyList<(string Question, string Answer)> history, string message,
+        string? numberedNote, int blockCount, string? selection, string? appInfo = null)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("You are the assistant in a chat panel beside a notes app. The user talks to you about the note they are editing.");
+        if (appInfo is { Length: > 0 })
+            sb.AppendLine("You also know the app itself (see \"About the app\" below). When the user asks how a feature works, where to find it, or whether it is working, answer from that information: say which menu item or setting to use and what its state is. You cannot press buttons or run features yourself, but never say that you cannot see the app.");
+        if (numberedNote is null)
+        {
+            sb.AppendLine("The user chose not to share the note: just answer in Markdown, short and direct.");
+        }
+        else
+        {
+            sb.AppendLine($"""
+                Decide what the user wants:
+                - A question, an explanation, ideas or text to write: answer in Markdown, short and direct. Don't use @@ commands.
+                - A change to the note (add, rewrite, restructure, translate, a table, a chart…): write one or two short
+                  sentences saying what you change, then an empty line, then ONLY edit commands. Each command is a line of
+                  its own, followed by the Markdown it needs:
+                @@ replace 3
+                (new Markdown for block 3; "@@ replace 3-5" replaces blocks 3 to 5 with one piece of Markdown)
+                @@ insert after 2
+                (new Markdown to add after block 2; "@@ insert after 0" adds it at the top)
+                @@ delete 4
+                Use as few commands as possible and never repeat blocks you don't change. Don't write the [n] numbers in
+                your Markdown. Keep the note's language unless asked for another one. {ChartFormat}
+                """);
+        }
+        sb.AppendLine(AiService.LanguageRule + " This applies to your sentences to the user; the note's own text keeps the note's language.");
+        if (history.Count > 0)
+        {
+            sb.AppendLine().AppendLine("The chat so far:");
+            foreach (var (q, a) in history) sb.AppendLine($"User: {q}").AppendLine($"You: {a}");
+        }
+        if (!string.IsNullOrWhiteSpace(selection))
+            sb.AppendLine().AppendLine("The text the user has selected in the note (\"this\" and \"it\" may mean this):").AppendLine(selection);
+        if (numberedNote is not null)
+            sb.AppendLine().AppendLine($"The note ({blockCount} blocks):").AppendLine(numberedNote);
+        if (appInfo is { Length: > 0 }) sb.AppendLine().AppendLine("About the app:").AppendLine(appInfo);
+        sb.AppendLine().AppendLine("The user now says:").Append(message);
+        return sb.ToString();
+    }
+
+    /// <summary>What the chat knows about the app's features; the current state is added after it (see NotesWindow).</summary>
+    public const string AppGuide = """
+        Toolshed360 is a tray app with a dashboard of the user's scripts, notes, interval timers, a work log and AI features.
+        AI features (all use the AI command chosen in Settings → AI):
+        - Notes → ✨ AI menu: Improve writing, Shorten, Fix spelling and grammar, Translate, Continue writing, "Summarize the note" (3–7 bullets, inserted at the top or added at the end), Extract to-dos, Turn into meeting minutes, Suggest a title and tags. The results appear in this chat panel. Selected text is used instead of the whole note.
+        - This chat: questions about the note, or changes to it that are shown first and applied with the Apply button.
+        - A note saved without a title gets an AI title and tags automatically (setting "AI auto title").
+        - End-of-day summary: when working hours end, an AI summary of the day's work log is saved as a note titled "Day summary <date>" tagged #summary (setting "AI day summary"; once per working day; needs the work log on).
+        - Work log window: "AI report" and "AI timesheet" for the range on screen, saved as notes.
+        - Ask AI (main window, tray or global hotkey): a quick question with optional clipboard and window context.
+        - Scripts: "Explain with AI…" on a tile, and "AI Script" to write a new script.
+        - Timers can run an AI prompt on an interval.
+        """;
+
     /// <summary>A free-form change to the selected part of a note; the answer replaces the selection.</summary>
     public static string EditSelection(string instruction, string note, string selection) => $"""
         You are editing a note in a notes app. Do what the instruction asks with the selected part shown at the end;
@@ -267,5 +329,49 @@ public static class AiPrompts
 
         Reply with JSON only, no other text:
         {"name": "short name", "intervalMinutes": 30, "action": "beep|command|ai", "command": "", "prompt": "", "message": "pop-up text", "notify": true}
+        """;
+
+    // ---- captures --------------------------------------------------------------------
+
+    /// <summary>Edit the annotations of a screenshot. The AI cannot see the picture, so it gets the text found in it
+    /// (OCR) with rectangles, and the current annotations; it answers with changes (see <c>CaptureAi.Apply</c>).</summary>
+    public static string EditCapture(string instruction, string pictureInfo) => $$"""
+        You edit annotations on a screenshot. You cannot see the picture; you get the text found in it (OCR lines L1, L2, …
+        with their rectangle x,y,w,h in pixels, origin top-left) and the annotations that already exist (A1, A2, …).
+        Do what the instruction says by changing annotations.
+
+        Annotation kinds: box, ellipse, highlight (translucent marker over text), redact (solid cover, e.g. for secrets),
+        blur (mosaic over sensitive text), arrow (x1,y1 tail → x2,y2 head), line, text (x1,y1), callout (speech box at
+        x1,y1 with a pointer to the anchor x2,y2), step (numbered circle at x1,y1; "number" is the step number).
+        "text" is the words shown with the annotation; it is also what the user searches for later, so write it clearly.
+        Colours are "#RRGGBB". Use "line":"L3" instead of coordinates to put a box / ellipse / highlight / redact / blur / arrow /
+        callout / step on that OCR line — much more exact than guessing coordinates. Only use coordinates for things that are not text.
+
+        Reply with JSON only, no other text:
+        {"summary": "one sentence about what you did",
+         "ops": [
+           {"op": "add", "kind": "box", "line": "L3", "color": "#E53935", "text": ""},
+           {"op": "add", "kind": "arrow", "x1": 100, "y1": 80, "x2": 220, "y2": 140, "text": "Click here"},
+           {"op": "update", "id": "A2", "text": "new words", "color": "#1E88E5"},
+           {"op": "delete", "id": "A4"}
+         ],
+         "title": "optional new title", "tags": ["optional", "tags"], "description": "optional: what the picture shows"}
+        Leave out "title", "tags" and "description" unless asked or clearly useful. If the instruction cannot be done
+        with the information you have, return an empty "ops" list and say why in "summary".
+        {{AiService.LanguageRule}}
+
+        Instruction: {{instruction}}
+
+        {{pictureInfo}}
+        """;
+
+    /// <summary>Title, tags and a description for the search index, from the text found in a screenshot.</summary>
+    public static string DescribeCapture(string pictureInfo) => $$"""
+        Below is the text found in a screenshot (OCR, with positions), the program it came from and the annotations the
+        user drew. You cannot see the picture. Write what is most likely shown, so the user can find it again by searching.
+        Reply with JSON only: {"title": "at most 8 words", "tags": ["1–5 lowercase single words"], "description": "1–2 sentences"}
+        {{AiService.LanguageRule}}
+
+        {{pictureInfo}}
         """;
 }

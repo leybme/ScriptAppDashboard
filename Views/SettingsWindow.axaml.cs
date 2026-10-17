@@ -43,6 +43,8 @@ public partial class SettingsWindow : Window
         ApplyAiProvider();
         AiLanguageBox.Text = config.AiLanguage;
         AiHotkeyBox.Text = config.AiHotkey;
+        CaptureHotkeyBox.Text = config.CaptureHotkey;
+        CaptureOcrCheck.IsChecked = config.CaptureOcr;
         AiAutoTitleCheck.IsChecked = config.AiAutoTitle;
         AiDaySummaryCheck.IsChecked = config.AiDaySummary;
         ApplyAiHints();
@@ -105,6 +107,9 @@ public partial class SettingsWindow : Window
         AiHotkeyText.Text = !OperatingSystem.IsWindows()
             ? "Global hotkeys work on Windows only — use the tray menu’s “Ask AI…”."
             : AppRef.HotkeyError ?? "Opens “Ask AI” from any app. Keys: Ctrl, Alt, Shift, Win + a letter, digit, F1–F24 or Space.";
+        CaptureHotkeyText.Text = !OperatingSystem.IsWindows()
+            ? "Global hotkeys work on Windows only — use the tray menu’s “Capture Screenshot”."
+            : AppRef.CaptureHotkeyError ?? "Takes a screenshot from any app. Keys: Ctrl, Alt, Shift, Win + a letter, digit, F1–F24 or Space.";
         AiDaySummaryText.Text = $"Working hours: {new WorkHours(AppRef.Config).Describe()} (Work log tab). " +
                                 "Needs the work log; skipped on days with under 15 minutes of activity.";
     }
@@ -347,6 +352,8 @@ public partial class SettingsWindow : Window
         config.AiCommand = (AiCommandBox.Text ?? "").Trim();
         config.AiLanguage = (AiLanguageBox.Text ?? "").Trim();
         config.AiHotkey = (AiHotkeyBox.Text ?? "").Trim();
+        config.CaptureHotkey = (CaptureHotkeyBox.Text ?? "").Trim();
+        config.CaptureOcr = CaptureOcrCheck.IsChecked == true;
         config.AiAutoTitle = AiAutoTitleCheck.IsChecked == true;
         config.AiDaySummary = AiDaySummaryCheck.IsChecked == true;
 
@@ -376,7 +383,9 @@ public partial class SettingsWindow : Window
         AppRef.NotifySettingsChanged();
         ApplyAiHints();
 
-        var status = AppRef.HotkeyError is null ? "Saved." : "Saved, but the hotkey could not be registered (see the AI tab).";
+        var status = AppRef.HotkeyError is not null ? "Saved, but the hotkey could not be registered (see the AI tab)."
+            : AppRef.CaptureHotkeyError is not null ? "Saved, but the screenshot hotkey could not be registered (see the Capture tab)."
+            : "Saved.";
         var wantStartup = StartupCheck.IsChecked == true;
         if (StartupCheck.IsEnabled && wantStartup != _startupInitial)
         {

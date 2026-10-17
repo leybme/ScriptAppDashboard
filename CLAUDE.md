@@ -26,6 +26,12 @@ dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 | `Services/WorkHours.cs` | Working-hours rules (wraps past midnight for night shifts). |
 | `Services/TimerService.cs` | 1-second ticker that runs the timers (beep / shell command / AI CLI via stdin). Supports pause and resume (`TimersPausedUntil` in the config). |
 | `Services/NotesService.cs` | One file per note (`Load`, `Save(note)`, `Delete`), migration from the old `notes.json`, conflict-copy adoption, `Watch` + `ExternalChange` for other PCs' edits, pictures (`AddImage`, `ResolveImage`, `MapImages`, `DeleteUnusedImages`). Also search, `HtmlToMarkdown` / `ToMarkdown` / `ToHtml` (export). |
+| `Services/ScreenCaptureService.cs` | `Pixels` (BGRA buffer: `Crop`, `ToBitmap`, `ToPng`, `FromImage`) and the screen grab: GDI `BitBlt` of the whole virtual screen plus the foreground window's rectangle (Windows), `screencapture -i` (macOS). |
+| `Services/CaptureService.cs` | Captures in `captures/` of DataDir: `<id>.png` (original), `<id>.json` (`CaptureItem`), `<id>.annotated.png`. `Load`, `Create`, `Save`, `Delete`, and `Search` (annotation text > title/tags > description > window > OCR). |
+| `Services/OcrService.cs` | Windows OCR through Windows PowerShell 5.1 (WinRT, no package): lines with rectangles. `EnsureAsync` stores them in the capture. |
+| `Services/CaptureAi.cs` | AI on captures: `PictureInfo` (OCR lines `L1…` + annotations `A1…` as text, because the CLI cannot see images), `Apply` (JSON `ops` add / update / delete; `"line":"L3"` places a shape on an OCR line), `ApplyDescription`, `AutoDescribeAsync`. Prompts `EditCapture` / `DescribeCapture` are in `AiPrompts`. |
+| `Views/AnnotationRenderer.cs`, `AnnotationSurface.cs` | One drawing routine for the editor and the PNG export (`ExportPng`, RenderTargetBitmap); the surface does hit-testing, handles, create / move / resize / crop. |
+| `Views/CaptureEditorWindow`, `CapturesWindow`, `CaptureOverlayWindow.cs` | The annotation editor (autosave, undo of whole states, OCR, AI), the thumbnail gallery with search, and the full-screen region picker (code only). `App.CaptureAsync`, `ShowCapture(id)`, `ShowCaptures`, `OpenCaptureFrom`. |
 | `Services/ClipboardImageService.cs` | Reads a pasted picture: Win32 clipboard (`PNG` format, else `CF_DIB` → .bmp) or `osascript` on macOS. |
 | `Services/NoteDocument.cs` | Note body model for the visual editor: `Parse` (HTML, incl. old `• `/`1. `/`◷` plain lines → `NoteBlock`s), `ToHtml`, `ToMarkdown`, `FromMarkdown`, and the inline markup (`**b**`, `*i*`, `` `c` ``, `[t](u)`) ↔ HTML conversion. Tables and charts (`Cells`, `Header`, `ChartType`), `GridFromText` (pasted spreadsheet cells), `ParseDelimited`. |
 | `Services/ChartLayout.cs` | Lays out a chart block (bar / line / pie) as shapes with SVG path data and colour tokens, so the editor (`ChartCanvas`) and the export (`ToSvg`) draw the same picture. Also `Data` (labels + series from the cells), `ParseNumber`, `HoverAt`, and the categorical palette. |
@@ -36,6 +42,7 @@ dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 | `Views/AiResultWindow.axaml(.cs)` | Shared dialog: runs an AI request (Stop / Try again), shows the editable answer and action buttons; returns `(action, text)`. |
 | `Views/QuickAskWindow`, `Views/AiScriptWindow` | Ask AI (single instance via `App.ShowQuickAsk`), and write-a-script-with-AI. |
 | `Views/NoteEditor.axaml(.cs)` | The WYSIWYG note editor (a UserControl): one row per block, each with a rendered `TextBlock` and a `TextBox` that is shown only while that block is edited. |
+| `Views/AiChatPanel.axaml(.cs)` | The AI chat beside a note (a UserControl in `NotesWindow`, `Ctrl+J`). One conversation per note id, kept in memory. A message is answered with Markdown, or with `@@` edit commands (`AiPrompts.Chat`) that are shown first and applied on **Apply** through the host's `ApplyEdits` / `Undo` / `Insert` delegates. `RunRequest` runs the AI menu's actions as turns of the same chat. |
 | `Views/NoteTableView.cs`, `Views/NoteChartView.cs` | Table and chart blocks in the editor (`GridBlockView`): a grid of cells (rendered / edited like blocks), and a chart (title, type, `ChartCanvas`, and its data as a `NoteTableView`). |
 | `Views/*` | One window per feature. `ToastWindow.cs` is the corner pop-up, built in code only. `UiHelpers.cs` holds `Dialogs.Confirm`. |
 
@@ -46,6 +53,7 @@ Notes, images and the work log live in `DataDir`: the `DataFolder` setting (e.g.
 
 - `config.json` (ConfigDir): scripts, timers and settings.
 - `notes/<id>.json` (DataDir): one note per file, written atomically (.tmp + move). The body is HTML; the visual editor writes one block per line (`<p>`, `<h1-6>`, `<ul>`/`<ol>`, `<ul class="timed">` with `<span class="t">stamp</span>`, `<blockquote>`, `<pre><code>`, `<hr>`, `<p><img src="images/…"></p>` for a picture, `<table>` with one `<tr>` per line, and `<figure class="chart" data-type="bar|line|pie">` holding an optional `<figcaption>` and a `<table>` for a chart). An old single `notes.json` is split up once and renamed `notes.json.migrated`.
+- `captures/` (DataDir): `<id>.png`, `<id>.json`, `<id>.annotated.png` (see `CaptureService`).
 - `images/` (DataDir): pictures, referenced relative to DataDir (`images/20261011-093000-1a2b3c4d.png`).
 - `timers.json` (DataDir): the timers, only when `SyncTimers` is on.
 - `worklog/yyyy-MM-dd.jsonl` (DataDir; `yyyy-MM-dd.<MachineName>.jsonl` when synced): one JSON object per line, UTF-8 without a BOM. The `k` field is:
@@ -92,6 +100,10 @@ Notes, images and the work log live in `DataDir`: the `DataFolder` setting (e.g.
 - **Work-log time accounting:**
   - Samples skip idle time (`GetLastInputInfo`) and the lock screen (`LockApp`).
   - Elapsed time is capped at twice the sample interval, so sleep or hibernate isn't counted.
+- **AI chat panel:**
+  - The host (`NotesWindow`) owns the note: the panel only calls `GetContext`, `ApplyEdits`, `Undo`, `Insert`. Edits carry the note's HTML from when the question was sent; `Chat_ApplyEdits` refuses when the note has changed since (the block numbers would not fit).
+  - A text box drops its selection when focus leaves it, so the host captures the selection when the pointer goes down in the panel (`Pressing` → `CaptureChatSelection`), and the editor's `GotFocus` clears it again.
+  - Menu-action buttons restore the selection that was current when the request started before applying (`RunAiAction`).
 - **AI:**
   - Every AI feature uses the shared helpers in `AiService`: `Asking(task)` / `Failed(result)` for status text, and `AnswerToNote(title, tags, answer, intro)` to turn an answer into a note (it strips the outer code fence). Don't build these by hand.
   - Notes made outside the notes window (AI answers, day summaries) go through `App.AddNote`: an open `NotesWindow` keeps its own list and would overwrite `notes.json` on its next save.
@@ -111,6 +123,14 @@ Notes, images and the work log live in `DataDir`: the `DataFolder` setting (e.g.
   - Toolbar actions go through `ActiveTarget()` (the block's TextBox or the current cell), so bold, link, code and time work in cells.
   - A new table's cells are only in the visual tree after its ScrollViewer has a template, so `FocusCell` posts the focus once when the cell isn't attached yet.
   - Charts take at most 8 series (pie: 7 slices + "Other"); text columns are skipped. Colours come from `ChartLayout.Color` (light and dark steps); the export draws light colours.
+- **Captures:**
+  - Captures are not in `images/`, which `DeleteUnusedImages` cleans; "New note with image" copies the annotated PNG there.
+  - `Annotation.Kind` values are in `AnnotationKind` (a `const Text` can't live inside `Annotation`, which has a `Text` property). Coordinates are pixels of the original picture; the surface scales by `Zoom`.
+  - Text, arrow and callout labels: an arrow / line starts inside its label (centred on the tail); a callout's pointer starts at its box centre under the box.
+  - Don't set `FormattedText.MaxTextWidth = 0` for "no wrap": the text disappears. Leave it unset.
+  - `TextChanged` on boxes set while opening fires late: compare with the saved values before marking dirty. Tool buttons use `IsCheckedChanged` (guarded by `_syncingTools`) so UI Automation can select them.
+  - The default hotkey `Ctrl+Alt+C` was chosen because `Ctrl+Alt+S` and `Ctrl+Alt+A` are taken on the author's PC; `HotkeyService` has numbered slots (0 = Ask AI, 1 = capture).
+  - Test with `TOOLSHED360_DATA` on generated PNGs; a test hotkey press also reaches other screenshot tools the user runs.
 - **Pictures:** a picture on its own line is a `BlockKind.Image` block (`IsAtomic`, like a divider: the caret skips it, Backspace/Delete next to it remove it). The editor decodes at most 1600 px wide and disposes bitmaps on `Load` / row removal. Paste prefers text over a picture (Excel and browsers put both on the clipboard).
 - **Non-ASCII in .ps1 test scripts:** characters like `◷` and `•` get mangled in .ps1 files saved without a BOM. Build them with `[char]0x25F7`.
 

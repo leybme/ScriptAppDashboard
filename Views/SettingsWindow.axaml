@@ -105,6 +105,19 @@
         </ScrollViewer>
       </TabItem>
 
+      <TabItem Header="Capture">
+        <ScrollViewer>
+        <StackPanel Spacing="10" Margin="4,16,4,0">
+          <TextBlock Text="Screenshot hotkey"/>
+          <TextBox x:Name="CaptureHotkeyBox" AutomationProperties.Name="Screenshot hotkey" Watermark="Ctrl+Alt+C — leave empty for none"/>
+          <TextBlock x:Name="CaptureHotkeyText" FontSize="12" Foreground="Gray" TextWrapping="Wrap"/>
+          <CheckBox x:Name="CaptureOcrCheck" Margin="0,6,0,0"
+                    Content="Read the text in new screenshots (Windows OCR) so they can be searched"/>
+          <TextBlock FontSize="12" Foreground="Gray" TextWrapping="Wrap"
+                     Text="Screenshots, their annotations and the text found in them are stored in the “captures” folder of the data folder. The AI can edit annotations using that text."/>
+        </StackPanel>
+        </ScrollViewer>
+      </TabItem>
       <TabItem Header="AI">
         <ScrollViewer>
           <StackPanel Spacing="10" Margin="4,16,4,0">

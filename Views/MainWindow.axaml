@@ -67,6 +67,13 @@
               <TextBlock Text="Search" VerticalAlignment="Center"/>
             </StackPanel>
           </Button>
+          <Button AutomationProperties.Name="Captures" Margin="0,2,8,2" Click="CapturesButton_Click"
+                  ToolTip.Tip="Screenshots with annotations — searchable by the words on them">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <materialIcons:MaterialIcon Kind="CameraOutline" Width="16" Height="16"/>
+              <TextBlock Text="Captures" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Button>
           <Button x:Name="AskAiButton" AutomationProperties.Name="Ask AI" Margin="0,2,8,2" Click="AskAiButton_Click">
             <StackPanel Orientation="Horizontal" Spacing="6">
               <materialIcons:MaterialIcon Kind="RobotOutline" Width="16" Height="16"/>

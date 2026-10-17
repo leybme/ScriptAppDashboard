@@ -82,7 +82,7 @@ public partial class App : Application
     private Views.TimersWindow? _timersWindow;
     private Views.WorkLogWindow? _workLogWindow;
 
-    public void ShowNotes(bool newNote = false)
+    public void ShowNotes(bool newNote = false, bool openChat = false)
     {
         if (_notesWindow is null)
         {
@@ -93,6 +93,7 @@ public partial class App : Application
         if (_notesWindow.WindowState == WindowState.Minimized) _notesWindow.WindowState = WindowState.Normal;
         _notesWindow.Activate();
         if (newNote) _notesWindow.NewNote();
+        if (openChat) _notesWindow.OpenChat();
     }
 
     public void ShowTimers()
@@ -274,6 +275,104 @@ public partial class App : Application
         ExitApp();
     }
 
+    // ---- captures ---------------------------------------------------------------------
+
+    private Views.CapturesWindow? _capturesWindow;
+    private readonly Dictionary<Guid, Views.CaptureEditorWindow> _captureEditors = new();
+    private bool _capturing;
+
+    public void ShowCaptures()
+    {
+        if (_capturesWindow is null)
+        {
+            _capturesWindow = new Views.CapturesWindow();
+            _capturesWindow.Closed += (_, _) => _capturesWindow = null;
+        }
+        _capturesWindow.Show();
+        if (_capturesWindow.WindowState == WindowState.Minimized) _capturesWindow.WindowState = WindowState.Normal;
+        _capturesWindow.Activate();
+        _capturesWindow.FocusSearch();
+    }
+
+    /// <summary>Opens a saved capture in the editor (one editor per capture).</summary>
+    public void ShowCapture(Guid id)
+    {
+        if (_captureEditors.TryGetValue(id, out var open))
+        {
+            open.Show();
+            if (open.WindowState == WindowState.Minimized) open.WindowState = WindowState.Normal;
+            open.Activate();
+            return;
+        }
+        if (CaptureService.Load(id) is not { } item) return;
+        try
+        {
+            var editor = new Views.CaptureEditorWindow(item);
+            _captureEditors[id] = editor;
+            editor.Closed += (_, _) => _captureEditors.Remove(id);
+            editor.Show();
+            editor.Activate();
+        }
+        catch (Exception ex)
+        {
+            _captureEditors.Remove(id);
+            Views.ToastWindow.ShowToast("Could not open the capture", ex.Message, ShowCaptures, 10);
+        }
+    }
+
+    /// <summary>Saves pixels (a screenshot or a picture file) as a new capture and opens the editor on it.</summary>
+    public void OpenCaptureFrom(Pixels pixels, OpenWindow? source)
+    {
+        try
+        {
+            var item = CaptureService.Create(pixels.ToPng(), pixels.Width, pixels.Height, source);
+            ShowCapture(item.Id);
+        }
+        catch (Exception ex)
+        {
+            Views.ToastWindow.ShowToast("Could not save the capture", ex.Message, null, 10);
+        }
+    }
+
+    /// <summary>Takes a screenshot: the user drags a region on a frozen picture of the desktop (or the whole desktop is
+    /// taken), then the editor opens. On macOS the system's own region tool is used.</summary>
+    public async Task CaptureAsync(bool fullScreen = false, OpenWindow? foreground = null)
+    {
+        if (_capturing || IsExiting) return;
+        _capturing = true;
+        // hide our own windows so they are not in the picture (toasts stay: they are short-lived)
+        var hidden = (ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Windows
+            .Where(w => w.IsVisible && w is not Views.ToastWindow && w is not Views.CaptureOverlayWindow).ToList() ?? new();
+        foreach (var w in hidden) w.Hide();
+        try
+        {
+            if (hidden.Count > 0) await Task.Delay(250); // let the windows disappear before the screen is read
+            Pixels? picked;
+            if (OperatingSystem.IsMacOS())
+                picked = await Task.Run(ScreenCaptureService.GrabInteractiveMac);
+            else
+            {
+                var shot = await Task.Run(ScreenCaptureService.GrabScreen);
+                if (shot is null)
+                {
+                    Views.ToastWindow.ShowToast("Could not read the screen",
+                        OperatingSystem.IsWindows() ? "Screenshots do not work while the session is locked." : "Screenshots are not supported on this system.", null, 8);
+                    return;
+                }
+                picked = fullScreen ? shot : await new Views.CaptureOverlayWindow(shot).PickAsync();
+            }
+            // bring the windows back first, so the editor opens in front of them
+            foreach (var w in hidden) w.Show();
+            hidden.Clear();
+            if (picked is not null) OpenCaptureFrom(picked, foreground ?? WorkLogService.Foreground());
+        }
+        finally
+        {
+            foreach (var w in hidden) w.Show();
+            _capturing = false;
+        }
+    }
+
     // ---- AI ---------------------------------------------------------------------------
 
     private Views.QuickAskWindow? _quickAskWindow;
@@ -282,18 +381,32 @@ public partial class App : Application
     public string? HotkeyError { get; private set; }
 
     private string? _registeredHotkey;
+    private string? _registeredCaptureHotkey;
+
+    /// <summary>Why the capture hotkey could not be registered, or null.</summary>
+    public string? CaptureHotkeyError { get; private set; }
 
     private void ApplyHotkey()
     {
-        if (_registeredHotkey == Config.AiHotkey) return;
-        _registeredHotkey = Config.AiHotkey;
-        HotkeyError = HotkeyService.Start(Config.AiHotkey, () =>
+        var changed = false;
+        if (_registeredHotkey != Config.AiHotkey)
         {
-            // remember what was in front before our window takes over
-            var foreground = WorkLogService.Foreground();
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => ShowQuickAsk(foreground));
-        });
-        RefreshTrayMenu(); // the "Ask AI" entry shows the hotkey only when it works
+            _registeredHotkey = Config.AiHotkey;
+            HotkeyError = HotkeyService.Start(0, Config.AiHotkey, () =>
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => ShowNotes(openChat: true)));
+            changed = true;
+        }
+        if (_registeredCaptureHotkey != Config.CaptureHotkey)
+        {
+            _registeredCaptureHotkey = Config.CaptureHotkey;
+            CaptureHotkeyError = HotkeyService.Start(1, Config.CaptureHotkey, () =>
+            {
+                var foreground = WorkLogService.Foreground();
+                Avalonia.Threading.Dispatcher.UIThread.Post(async () => await CaptureAsync(foreground: foreground));
+            }, "Settings → Capture");
+            changed = true;
+        }
+        if (changed) RefreshTrayMenu(); // the entries show a hotkey only when it works
     }
 
     /// <param name="foreground">The window that was in front when the hotkey was pressed.</param>
@@ -448,8 +561,23 @@ public partial class App : Application
         menu.Add(newNote);
         var ask = new NativeMenuItem(string.IsNullOrWhiteSpace(Config.AiHotkey) || HotkeyError is not null
             ? "Ask AI…" : $"Ask AI…  ({Config.AiHotkey})");
-        ask.Click += (_, _) => ShowQuickAsk();
+        ask.Click += (_, _) => ShowNotes(openChat: true);
         menu.Add(ask);
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+        {
+            var capture = new NativeMenuItem(string.IsNullOrWhiteSpace(Config.CaptureHotkey) || CaptureHotkeyError is not null
+                ? "Capture Screenshot" : $"Capture Screenshot  ({Config.CaptureHotkey})");
+            // a moment for the tray menu to close before the screen is read
+            capture.Click += async (_, _) =>
+            {
+                await Task.Delay(300);
+                await CaptureAsync();
+            };
+            menu.Add(capture);
+        }
+        var captures = new NativeMenuItem("Captures…");
+        captures.Click += (_, _) => ShowCaptures();
+        menu.Add(captures);
         if (Config.TimestampButtonEnabled)
         {
             var copyTime = new NativeMenuItem("Copy Time");

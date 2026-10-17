@@ -1,0 +1,37 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="ScriptAppDashboard.Views.AiChatPanel">
+  <DockPanel>
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+      <Button DockPanel.Dock="Right" Content="✕" Padding="8,2" AutomationProperties.Name="Close AI chat"
+              ToolTip.Tip="Hide the chat (the conversation is kept until the notes window closes)" Click="Close_Click"/>
+      <Button DockPanel.Dock="Right" Content="New chat" Margin="0,0,6,0" AutomationProperties.Name="New AI chat"
+              ToolTip.Tip="Forget this note's conversation and start again" Click="NewChat_Click"/>
+      <TextBlock Text="✨ AI chat" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+    </DockPanel>
+
+    <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,8,0,0">
+      <Border x:Name="SelectionChip" IsVisible="False" CornerRadius="4" Padding="8,3" Background="#26808080">
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Content="✕" Padding="6,0" Margin="6,0,0,0" Background="Transparent"
+                  AutomationProperties.Name="Drop the selection" ToolTip.Tip="Don't send the selected text" Click="ClearSelection_Click"/>
+          <TextBlock x:Name="SelectionText" FontSize="12" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+        </DockPanel>
+      </Border>
+      <TextBox x:Name="InputBox" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" MaxHeight="150"
+               AutomationProperties.Name="Message to the AI"
+               Watermark="Ask about this note, or tell the AI what to change… (Enter sends, Shift+Enter is a new line)"/>
+      <DockPanel>
+        <Button x:Name="SendButton" DockPanel.Dock="Right" Content="Send" Classes="accent" MinWidth="70"
+                HorizontalContentAlignment="Center" AutomationProperties.Name="Send to the AI" Click="Send_Click"/>
+        <CheckBox x:Name="NoteCheck" IsChecked="True" Content="Send the note" VerticalAlignment="Center"
+                  ToolTip.Tip="The AI reads this note, and can change it (you press Apply first). Untick to chat without sharing it."/>
+      </DockPanel>
+      <TextBlock x:Name="StatusText" FontSize="12" Foreground="Gray" TextWrapping="Wrap"/>
+    </StackPanel>
+
+    <ScrollViewer x:Name="Scroll" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel x:Name="Messages" Spacing="10" Margin="0,0,10,0"/>
+    </ScrollViewer>
+  </DockPanel>
+</UserControl>

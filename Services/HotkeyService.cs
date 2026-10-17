@@ -1,37 +1,48 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 
 namespace ScriptAppDashboard.Services;
 
 /// <summary>
-/// One system-wide hotkey (Windows), e.g. "Ctrl+Alt+Space". It is registered on its own thread with a message loop,
-/// so it works while every window is hidden in the tray. The callback runs on that thread.
+/// System-wide hotkeys (Windows), e.g. "Ctrl+Alt+Space". Each one (a numbered slot) is registered on its own thread with a
+/// message loop, so it works while every window is hidden in the tray. The callback runs on that thread.
 /// </summary>
 public static class HotkeyService
 {
-    private const int HotkeyId = 0x5AD1;
-    private static Thread? _thread;
-    private static uint _threadId;
+    private const int HotkeyIdBase = 0x5AD1;
 
-    /// <summary>Registers the hotkey (replacing the previous one). Returns an error message, or null when it worked
-    /// or there is nothing to register.</summary>
-    public static string? Start(string? spec, Action pressed)
+    private sealed class Slot
     {
-        Stop();
+        public Thread? Thread;
+        public uint ThreadId;
+    }
+
+    private static readonly Dictionary<int, Slot> Slots = new();
+
+    /// <summary>Registers the hotkey for a slot (replacing that slot's previous one). Returns an error message, or null
+    /// when it worked or there is nothing to register.</summary>
+    /// <param name="settingsPlace">Where the user changes it, for the error message ("Settings → AI").</param>
+    public static string? Start(int slot, string? spec, Action pressed, string settingsPlace = "Settings → AI")
+    {
+        Stop(slot);
         if (!OperatingSystem.IsWindows() || string.IsNullOrWhiteSpace(spec)) return null;
         if (!TryParse(spec, out var modifiers, out var key))
             return $"“{spec}” is not a hotkey this app understands — use e.g. Ctrl+Alt+Space or Ctrl+Shift+F9.";
 
+        var state = new Slot();
+        var id = HotkeyIdBase + slot;
         string? error = null;
         var ready = new ManualResetEventSlim(); // not disposed: the thread may set it after a timed-out wait
-        _thread = new Thread(() =>
+        state.Thread = new Thread(() =>
         {
-            _threadId = Native.GetCurrentThreadId();
-            if (!Native.RegisterHotKey(IntPtr.Zero, HotkeyId, modifiers | Native.MOD_NOREPEAT, key))
+            state.ThreadId = Native.GetCurrentThreadId();
+            if (!Native.RegisterHotKey(IntPtr.Zero, id, modifiers | Native.MOD_NOREPEAT, key))
             {
-                error = $"{spec} is already used by another program — choose a different hotkey in Settings → AI.";
-                _threadId = 0;
+                error = $"{spec} is already used by another program — choose a different hotkey in {settingsPlace}.";
+                state.ThreadId = 0;
                 ready.Set();
                 return;
             }
@@ -41,24 +52,39 @@ public static class HotkeyService
                 if (msg.message != Native.WM_HOTKEY) continue;
                 try { pressed(); } catch { /* never let the hotkey thread die */ }
             }
-            Native.UnregisterHotKey(IntPtr.Zero, HotkeyId);
+            Native.UnregisterHotKey(IntPtr.Zero, id);
         })
         {
             IsBackground = true,
-            Name = "Global hotkey",
+            Name = "Global hotkey " + slot,
         };
-        _thread.Start();
+        lock (Slots) Slots[slot] = state;
+        state.Thread.Start();
         ready.Wait(TimeSpan.FromSeconds(3));
         return error;
     }
 
-    public static void Stop()
+    public static string? Start(string? spec, Action pressed) => Start(0, spec, pressed);
+
+    /// <summary>Unregisters one slot's hotkey.</summary>
+    public static void Stop(int slot)
     {
         if (!OperatingSystem.IsWindows()) return;
-        if (_threadId != 0) Native.PostThreadMessage(_threadId, Native.WM_QUIT, IntPtr.Zero, IntPtr.Zero);
-        _thread?.Join(TimeSpan.FromSeconds(1));
-        _thread = null;
-        _threadId = 0;
+        Slot? state;
+        lock (Slots)
+        {
+            if (!Slots.Remove(slot, out state)) return;
+        }
+        if (state.ThreadId != 0) Native.PostThreadMessage(state.ThreadId, Native.WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+        state.Thread?.Join(TimeSpan.FromSeconds(1));
+    }
+
+    /// <summary>Unregisters every hotkey.</summary>
+    public static void Stop()
+    {
+        int[] slots;
+        lock (Slots) slots = Slots.Keys.ToArray();
+        foreach (var slot in slots) Stop(slot);
     }
 
     /// <summary>"Ctrl+Alt+Space" → MOD_CONTROL | MOD_ALT and VK_SPACE. Keys: A–Z, 0–9, F1–F24, Space; at least one modifier.</summary>

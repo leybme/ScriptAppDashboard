@@ -15,7 +15,7 @@
         <ComboBoxItem Content="Last 90 days"/>
         <ComboBoxItem Content="Last year"/>
       </ComboBox>
-      <TextBox x:Name="QueryBox" Watermark="Search notes, window titles / tabs, launched scripts, timer output…"/>
+      <TextBox x:Name="QueryBox" Watermark="Search notes, captures, window titles / tabs, launched scripts, timer output…"/>
     </DockPanel>
     <TextBlock x:Name="SummaryText" DockPanel.Dock="Top" Margin="2,8,0,4" FontSize="12" Foreground="Gray"
                TextWrapping="Wrap"

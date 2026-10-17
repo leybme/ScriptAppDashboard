@@ -149,9 +149,7 @@ public partial class AiResultWindow : Window
             return;
         }
         var text = ResultBox.SelectedText is { Length: > 0 } picked ? picked : ResultBox.Text ?? "";
-        // Markdown marks would be read as symbols
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"[*`#|]|^\s*-\s+|^\s*-{3,}\s*$", " ", System.Text.RegularExpressions.RegexOptions.Multiline);
-        if (!SpeechService.Speak(text)) StatusText.Text = "No speech voice is available on this system.";
+        if (!SpeechService.SpeakMarkdown(text)) StatusText.Text = "No speech voice is available on this system.";
     }
 
     private async void Copy_Click(object? sender, RoutedEventArgs e)

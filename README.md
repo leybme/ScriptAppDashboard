@@ -90,9 +90,24 @@ Everything stays on your machine, in daily JSON-lines files.
 
 ### Search everything
 
-One search box (Ctrl+F in the main window) looks through notes and the work log together. Results are grouped by day, with the time spent in matching windows.
+One search box (Ctrl+F in the main window) looks through notes, screenshots and the work log together. Results are grouped by day, with the time spent in matching windows.
 
 ![Search notes and the work log](docs/images/screenshotSearch.png)
+
+### Screenshots with annotations
+
+Press `Ctrl+Alt+C` anywhere (Windows; change it in **Settings → Capture**), or use **Captures** in the tray or main window. The screen freezes: drag a region, click the outlined window to take it, press `F` for everything, `Esc` to cancel. The picture opens in an editor, like Snagit:
+
+- **Tools**: box, ellipse, arrow, line, text, callout (a speech box pointing at an anchor), numbered step, highlight, **redact** (solid cover), **blur** (mosaic) and crop. Pick a colour, line width and text size; drag shapes to move them, drag the handles to reshape them, `Shift` keeps lines at 45° and boxes square. Undo and redo cover everything.
+- **Words are searchable**: type text on any annotation, then add a title, tags and a description. Everything is saved automatically, and the original picture is never changed (except by crop), so annotations stay editable.
+- **Text in the picture** is read with the Windows OCR and indexed too, so you can find a screenshot by what is written in it. Turn it off in Settings → Capture.
+- **Find them again**: the **Captures** window shows a thumbnail grid with its own search, and the main search (`Ctrl+F`) lists captures with the matching words.
+- **Use them**: copy the annotated picture, save it as a PNG, or make a new note holding the picture and its annotation words. You can also annotate a picture file or the picture on the clipboard.
+- **AI**: tell the AI what to do (“redact all email addresses”, “number the buttons”, “box the error message”). The AI reads text only, so it gets the OCR text with positions and the current annotations, and answers with changes; **Ctrl+Z** undoes them. **Title and tags** suggests a title, tags and a description from the text, and a capture saved without a title gets one automatically.
+
+![Annotating a screenshot: boxes, arrow, steps, callout, redaction and the details panel](docs/images/screenshotCaptureEditor.png)
+
+![The Captures window: thumbnails with their annotation words](docs/images/screenshotCaptures.png)
 
 ### Copy time
 
@@ -111,9 +126,9 @@ The AI features run the [Claude Code](https://docs.claude.com/en/docs/claude-cod
 Kiro is listed as a provider and will be supported in a later version. The **Test** button checks that everything works.
 
 - **Ask AI**: a quick question from the main window, the tray, or the global hotkey `Ctrl+Alt+Space` (Windows; set it in Settings). Follow-up questions see the earlier ones. You can include the clipboard or the window you were working in, and save the answer as a note.
-- **Notes**: the **✨ AI** menu improves, shortens, fixes or translates the selected text, or the whole note when nothing is selected. It can also continue writing, summarise the note, extract to-dos, turn raw meeting notes into minutes, and suggest a title and tags. You see the answer first and choose whether to replace, insert or save it as a new note. A note saved without a title gets an AI title and tags automatically.
-- **Learning English**: right-click a word in a note (it is picked for you) or select a sentence first. **🔊 Speak** reads it aloud (or the whole paragraph when nothing is selected; **🔉 Speak slowly** is slower) using the system voice. **✨ Explain (for learning English)** gives the meaning, pronunciation, examples and a translation into your AI answer language (its window shows the answer formatted, with an **✎ Edit** button for the raw text and a **🔊 Speak** button), and the same menu has Ask AI, Translate and the other rewrites.
-- **Ask AI to change the note…**: the first item in the **✨ AI** menu. Type what you want in your own words, such as "read the sales numbers and show them as a bar chart", "turn the list into a table" or "add a total row". The AI changes only the parts it needs to and leaves the rest of the note exactly as it was. With text selected, it works on the selection only.
+- **Notes**: the **✨ AI** menu improves, shortens, fixes or translates the selected text, or the whole note when nothing is selected. It can also continue writing, summarise the note, extract to-dos, turn raw meeting notes into minutes, and suggest a title and tags. The answers appear in the **AI chat** beside the note, where you choose whether to replace, insert or save them as a new note. A note saved without a title gets an AI title and tags automatically.
+- **Learning English**: right-click a word in a note (it is picked for you) or select a sentence first. **🔊 Speak** reads it aloud (or the whole paragraph when nothing is selected; **🔉 Speak slowly** is slower) using the system voice. **✨ Explain (for learning English)** gives the meaning, pronunciation, examples and a translation into your AI answer language (the answer appears formatted in the AI chat, with **Insert below**, **Copy** and **🔊 Speak** buttons), and the same menu has Ask AI, Translate and the other rewrites.
+- **AI chat**: the **💬 Chat** button (or `Ctrl+J`) opens a chat panel beside the note. Ask a question about the note, or tell the AI what to change in your own words, such as "read the sales numbers and show them as a bar chart", "turn the list into a table" or "add a total row". A question gets an answer you can insert below the paragraph you were in, use to replace the selected text, copy, speak or save as a new note. A change is shown first (**N changes**, expandable); nothing happens to the note until you press **Apply**, and **Undo** puts it back. The AI changes only the parts it needs to. Selected text is sent as context (shown above the message box), and untick **Send the note** to chat without sharing it. Each note has its own conversation, kept until the notes window closes. The **✨ AI** menu's actions (and **Ask AI to change the note…**) use the same panel.
 - **Work log**: **AI report** writes a standup-style summary of the range on screen (what you worked on, where your focus went, what's next). **AI timesheet** groups the time into projects with hours. Either can be saved as a note. When working hours end, an AI summary of the day is written into a note.
 - **Scripts**: right-click a tile and choose **Explain with AI…** to see what a script does and anything risky before you run it. **AI Script** writes a new script from a description; you review it before it's saved and added as a tile.
 
@@ -178,6 +193,7 @@ The pull request template in `.github/PULL_REQUEST_TEMPLATE.md` pre-fills every 
 - **Files in the data folder:**
   - `notes/<id>.json`: one file per note. Older versions kept every note in one `notes.json`; it is split up automatically the first time, and the old file is kept as `notes.json.migrated`.
   - `images/`: pictures used in notes.
+  - `captures/`: screenshots: `<id>.png` (untouched), `<id>.json` (annotations, title, tags, OCR text) and `<id>.annotated.png`.
   - `worklog/yyyy-MM-dd.jsonl`: the work log, one JSON object per line (`yyyy-MM-dd.<PC name>.jsonl` in a synced folder).
   - `timers.json`: the interval timers, when you share them between PCs.
 - **Using another folder:** set the `TOOLSHED360_DATA` environment variable to keep the settings elsewhere, for a portable install or a demo.

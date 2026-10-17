@@ -67,6 +67,12 @@ public class AppConfig
     /// <summary>Global hotkey that opens "Ask AI" (Windows), e.g. "Ctrl+Alt+Space"; empty = none.</summary>
     public string AiHotkey { get; set; } = "Ctrl+Alt+Space";
 
+    /// <summary>Global hotkey that takes a screenshot to annotate (Windows), e.g. "Ctrl+Alt+C"; empty = none.</summary>
+    public string CaptureHotkey { get; set; } = "Ctrl+Alt+C";
+
+    /// <summary>Read the text of new screenshots (OCR) so they can be searched by what is written in them.</summary>
+    public bool CaptureOcr { get; set; } = true;
+
     /// <summary>Ask the AI for a title and tags when a note is saved without a title.</summary>
     public bool AiAutoTitle { get; set; } = true;
 

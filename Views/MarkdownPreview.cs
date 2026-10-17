@@ -14,7 +14,8 @@ public static class MarkdownPreview
 {
     private static readonly FontFamily Mono = new("Consolas,Menlo,monospace");
 
-    public static Control Build(string markdown)
+    /// <summary>The formatted blocks without a scroll viewer, for placing inside another scrolling list (the AI chat).</summary>
+    public static Control BuildInline(string markdown)
     {
         var host = new StackPanel { Spacing = 6 };
         var number = 0;
@@ -23,6 +24,12 @@ public static class MarkdownPreview
             number = block.Kind == BlockKind.Number ? number + 1 : 0;
             host.Children.Add(Row(block, number));
         }
+        return host;
+    }
+
+    public static Control Build(string markdown)
+    {
+        var host = (StackPanel)BuildInline(markdown);
         return new ScrollViewer
         {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,

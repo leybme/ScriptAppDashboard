@@ -613,6 +613,15 @@ public static class NoteDocument
         return edits.Count > 0 ? edits : null;
     }
 
+    /// <summary>The text an answer holds before its first edit command (a sentence on what is changed), or all of it
+    /// when there are no commands.</summary>
+    public static string EditPreface(string answer)
+    {
+        var lines = answer.Replace("\r\n", "\n").Split('\n');
+        var first = Array.FindIndex(lines, l => EditCommand.IsMatch(l));
+        return string.Join("\n", first < 0 ? lines : lines[..first]).Trim();
+    }
+
     /// <summary>
     /// Applies edit commands to the units. Units nobody touches keep their blocks as they are; new content is parsed
     /// with <see cref="FromMarkdown"/>. Commands on units that don't exist are ignored.
