@@ -166,6 +166,9 @@ public static class WorkLogService
     private static DateTime _todayDate;
     private static double _todaySeconds;
 
+    /// <summary>Seconds since the last keyboard or mouse input (0 where that can't be told).</summary>
+    public static double IdleSeconds() => IsSupported ? NativeWin.GetIdleSeconds() : 0;
+
     /// <summary>Active seconds recorded today. Reads today's file once per day, then counts new samples in memory.</summary>
     public static double TodayActiveSeconds()
     {

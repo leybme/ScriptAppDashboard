@@ -825,7 +825,7 @@ public partial class NotesWindow : Window
         CaptureChatSelection();
         var selection = _codeView ? null : _aiSelection;
         return new AiChatContext(CurrentHtml(), (TitleBox.Text ?? "").Trim(),
-            selection is { Text.Length: > 0 } ? selection.Text : null, selection, AppInfo());
+            selection is { Text.Length: > 0 } ? selection.Text : null, selection, AppInfo(), _current?.Id);
     }
 
     /// <summary>What the chat is told about the app: the feature guide and the current state of the AI settings, the day summary and the notes.</summary>
@@ -846,6 +846,18 @@ public partial class NotesWindow : Window
             $"- Work log: {OnOff(config.WorkLogEnabled)}; working hours {config.WorkHoursStart}–{config.WorkHoursEnd}; active today {WorkLogService.FormatDuration(WorkLogService.TodayActiveSeconds())}.",
             $"- Notes: {_notes.Count}. Newest day summaries: {(summaries.Count > 0 ? string.Join("; ", summaries) : "none yet")}.",
         };
+        if (config.WorkLogEnabled)
+        {
+            try
+            {
+                var today = WorkLogService.Summarize(DateTime.Today, DateTime.Today, new WorkHours(config));
+                var md = WorkLogService.ToMarkdown(today);
+                lines.Add("");
+                lines.Add("Today's work log (what the user worked on, from the foreground-window samples):");
+                lines.Add(md.Length > 4000 ? md[..4000] + "\n…" : md);
+            }
+            catch { /* the work log is optional context */ }
+        }
         return string.Join(Environment.NewLine, lines);
     }
 

@@ -17,7 +17,7 @@ using ScriptAppDashboard.Services;
 namespace ScriptAppDashboard.Views;
 
 /// <summary>What the chat needs to know about the note on screen when a message is sent.</summary>
-public sealed record AiChatContext(string Html, string Title, string? SelectionText, object? SelectionToken, string AppInfo = "");
+public sealed record AiChatContext(string Html, string Title, string? SelectionText, object? SelectionToken, string AppInfo = "", Guid? NoteId = null);
 
 /// <summary>The result of applying the AI's changes to (or undoing them on) the note; Before / After are its HTML.</summary>
 public sealed record AiChatOutcome(bool Ok, string Message, string? Before = null, string? After = null);
@@ -167,7 +167,11 @@ public partial class AiChatPanel : UserControl
             Html = ctx.Html,
         };
         InputBox.Text = "";
-        await RunTurn(turn, token => AiService.AskAsync(AiPrompts.Chat(history, message, numbered, units?.Count ?? 0, turn.Selection, ctx.AppInfo), token),
+        StatusText.Text = "Searching your notes and screenshots…";
+        var related = await Task.Run(() => ChatRelated.Build(message, ctx.NoteId, ctx.Html));
+        var appInfo = related.Length == 0 ? ctx.AppInfo
+            : ctx.AppInfo + "\n\nFound in the user's own notes and screenshots for this question (search results; answer from them and name the note or screenshot):\n" + related;
+        await RunTurn(turn, token => AiService.AskAsync(AiPrompts.Chat(history, message, numbered, units?.Count ?? 0, turn.Selection, appInfo), token),
             allowEdits: numbered is not null);
     }
 

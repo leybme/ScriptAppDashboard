@@ -49,6 +49,8 @@ public partial class App : Application
             SettingsChanged += ApplyHotkey;
             _daySummaryTimer.Tick += (_, _) => CheckDaySummary();
             _daySummaryTimer.Start();
+            _imageIndexTimer.Tick += async (_, _) => await ImageIndexService.TickAsync();
+            _imageIndexTimer.Start();
             StartDataFolder();
 
             var startMinimized = desktop.Args?.Contains("--minimized") == true;
@@ -466,6 +468,9 @@ public partial class App : Application
 
     private readonly Avalonia.Threading.DispatcherTimer _daySummaryTimer = new() { Interval = TimeSpan.FromMinutes(1) };
     private bool _daySummaryRunning;
+
+    /// <summary>Reads the text of new note pictures and captures while the user is idle (see <see cref="ImageIndexService"/>).</summary>
+    private readonly Avalonia.Threading.DispatcherTimer _imageIndexTimer = new() { Interval = TimeSpan.FromSeconds(20) };
 
     /// <summary>Once per working day, when working hours end, writes an AI summary of the day into a note.</summary>
     private void CheckDaySummary()

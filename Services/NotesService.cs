@@ -64,7 +64,11 @@ public static class NotesService
         {
             try
             {
-                if (ResolveImage(src) is { } file && IsInImagesDir(file)) File.Delete(file);
+                if (ResolveImage(src) is { } file && IsInImagesDir(file))
+                {
+                    File.Delete(file);
+                    ImageIndexService.Forget(file);
+                }
             }
             catch
             {
@@ -270,6 +274,7 @@ public static class NotesService
         var name = NewImageName(Path.GetExtension(sourceFile).ToLowerInvariant());
         Directory.CreateDirectory(ImagesDir);
         File.Copy(sourceFile, Path.Combine(ImagesDir, name));
+        ImageIndexService.RequestScan();
         return "images/" + name;
     }
 
@@ -279,6 +284,7 @@ public static class NotesService
         var name = NewImageName(extension);
         Directory.CreateDirectory(ImagesDir);
         File.WriteAllBytes(Path.Combine(ImagesDir, name), data);
+        ImageIndexService.RequestScan();
         return "images/" + name;
     }
 
@@ -348,7 +354,11 @@ public static class NotesService
         {
             try
             {
-                if (!used.Contains(Path.GetFullPath(file)) && DateTime.Now - File.GetLastWriteTime(file) > minAge) File.Delete(file);
+                if (!used.Contains(Path.GetFullPath(file)) && DateTime.Now - File.GetLastWriteTime(file) > minAge)
+                {
+                    File.Delete(file);
+                    ImageIndexService.Forget(file);
+                }
             }
             catch
             {
