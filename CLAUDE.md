@@ -93,6 +93,7 @@ Notes, images and the work log live in `DataDir`: the `DataFolder` setting (e.g.
   - Samples skip idle time (`GetLastInputInfo`) and the lock screen (`LockApp`).
   - Elapsed time is capped at twice the sample interval, so sleep or hibernate isn't counted.
 - **AI:**
+  - Every AI feature uses the shared helpers in `AiService`: `Asking(task)` / `Failed(result)` for status text, and `AnswerToNote(title, tags, answer, intro)` to turn an answer into a note (it strips the outer code fence). Don't build these by hand.
   - Notes made outside the notes window (AI answers, day summaries) go through `App.AddNote`: an open `NotesWindow` keeps its own list and would overwrite `notes.json` on its next save.
   - The notes AI menu captures the selection (`NoteEditor.CaptureSelection`) in the button's `Click` before showing the flyout; the flyout takes focus and the TextBox drops its selection.
   - Answers are Markdown; `NoteDocument.FromMarkdown` turns them into blocks (Markdown tables become Table blocks, a ```` ```chart [type] ```` fence with optional `title:` / `type:` lines and CSV or a Markdown table becomes a Chart).

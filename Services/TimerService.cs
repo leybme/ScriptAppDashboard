@@ -150,7 +150,7 @@ public static class TimerService
     {
         var prompt = AiService.ExpandPlaceholders(timer.Prompt);
         var result = AiService.AskAsync(prompt, command: timer.AiCommand, timeout: TimeSpan.FromMinutes(10)).GetAwaiter().GetResult();
-        var text = result.Ok ? result.Text : "AI failed: " + result.Text;
+        var text = result.Ok ? result.Text : AiService.Failed(result);
         return text.Length > 8000 ? text[..8000] + "…" : text;
     }
 

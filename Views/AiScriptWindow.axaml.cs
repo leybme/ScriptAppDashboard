@@ -50,7 +50,7 @@ public partial class AiScriptWindow : Window
         _cancel = new CancellationTokenSource();
         GenerateButton.Content = "Stop";
         SaveButton.IsEnabled = false;
-        StatusText.Text = $"✨ {AiService.DisplayName} is writing the script…";
+        StatusText.Text = AiService.Asking("write the script");
         var result = await AiService.AskAsync(AiPrompts.GenerateScript(description, language), _cancel.Token);
         _cancel.Dispose();
         _cancel = null;
@@ -59,7 +59,7 @@ public partial class AiScriptWindow : Window
 
         if (!result.Ok)
         {
-            StatusText.Text = "AI failed: " + result.Text;
+            StatusText.Text = AiService.Failed(result);
             return;
         }
         CodeBox.Text = AiService.ExtractCode(result.Text).Replace("\r\n", "\n").Replace("\n", Environment.NewLine);

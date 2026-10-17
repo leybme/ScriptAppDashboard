@@ -988,7 +988,7 @@ public partial class NotesWindow : Window
     {
         var target = _current;
         _aiBusy = true;
-        StatusText.Text = "✨ Asking the AI for a title and tags…";
+        StatusText.Text = AiService.Asking("write a title and tags");
         try
         {
             var result = await AiService.AskAsync(AiPrompts.TitleAndTags(Cap(note, 8000)));

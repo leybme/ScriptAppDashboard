@@ -96,7 +96,7 @@ public partial class QuickAskWindow : Window
         AskButton.Content = "Stop";
         CopyButton.IsEnabled = NoteButton.IsEnabled = false;
         AnswerBox.Text = "";
-        StatusText.Text = $"Asking {AiService.DisplayName}…";
+        StatusText.Text = AiService.Asking();
         var result = await Task.Run(async () =>
         {
             var sb = new StringBuilder();
@@ -130,7 +130,7 @@ public partial class QuickAskWindow : Window
         }
         else
         {
-            StatusText.Text = "The AI request failed.";
+            StatusText.Text = AiService.Failed(result);
         }
     }
 
@@ -153,12 +153,8 @@ public partial class QuickAskWindow : Window
     private void SaveNote_Click(object? sender, RoutedEventArgs e)
     {
         var title = _lastQuestion.ReplaceLineEndings(" ");
-        var note = new NoteItem
-        {
-            Title = title.Length > 60 ? title[..60] + "…" : title,
-            Tags = "#ai",
-            Html = NoteDocument.ToHtml(NoteDocument.FromMarkdown("> " + _lastQuestion.ReplaceLineEndings(" ") + "\n\n" + (AnswerBox.Text ?? ""))),
-        };
+        var note = AiService.AnswerToNote(title.Length > 60 ? title[..60] + "…" : title, "#ai", AnswerBox.Text ?? "",
+            "> " + _lastQuestion.ReplaceLineEndings(" "));
         try
         {
             AppRef.AddNote(note);

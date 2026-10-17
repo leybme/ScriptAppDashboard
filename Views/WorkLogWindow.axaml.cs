@@ -88,12 +88,7 @@ public partial class WorkLogWindow : Window
         }, ct), ("note", "Save as note"));
         if (choice is not { } c) return;
 
-        var note = new Models.NoteItem
-        {
-            Title = heading,
-            Tags = timesheet ? "#timesheet #ai" : "#report #ai",
-            Html = NoteDocument.ToHtml(NoteDocument.FromMarkdown(AiService.StripOuterFence(c.Text))),
-        };
+        var note = AiService.AnswerToNote(heading, timesheet ? "#timesheet #ai" : "#report #ai", c.Text);
         try
         {
             AppRef.AddNote(note);

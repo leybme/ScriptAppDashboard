@@ -385,14 +385,8 @@ public partial class App : Application
                         Views.ToastWindow.ShowToast("Day summary failed", result.Text, ShowSettings, 20);
                         return;
                     }
-                    var note = new NoteItem
-                    {
-                        Title = $"Day summary {shiftDay:ddd yyyy-MM-dd}",
-                        Tags = "#summary #ai",
-                        Html = NoteDocument.ToHtml(NoteDocument.FromMarkdown(
-                            $"Active time {WorkLogService.FormatDuration(summary.ActiveSeconds)} ({summary.WorkHoursFilter})\n\n" +
-                            AiService.StripOuterFence(result.Text))),
-                    };
+                    var note = AiService.AnswerToNote($"Day summary {shiftDay:ddd yyyy-MM-dd}", "#summary #ai", result.Text,
+                        $"Active time {WorkLogService.FormatDuration(summary.ActiveSeconds)} ({summary.WorkHoursFilter})");
                     try
                     {
                         AddNote(note);

@@ -272,13 +272,13 @@ public partial class TimersWindow : Window
         }
         _describing = true;
         DescribeButton.IsEnabled = false;
-        StatusText.Text = $"✨ Asking {AiService.DisplayName} to set up the timer…";
+        StatusText.Text = AiService.Asking("set up the timer");
         try
         {
             var result = await AiService.AskAsync(AiPrompts.CreateTimer(description));
             if (!result.Ok)
             {
-                StatusText.Text = "AI failed: " + result.Text;
+                StatusText.Text = AiService.Failed(result);
                 return;
             }
             if (AiService.ExtractJson(result.Text) is not { } json)

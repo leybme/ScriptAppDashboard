@@ -52,7 +52,7 @@ public partial class AiResultWindow : Window
         close.Click += (_, _) => Close();
         ButtonHost.Children.Add(close);
 
-        _clock.Tick += (_, _) => StatusText.Text = $"Asking {AiService.DisplayName}…  {(int)(DateTime.Now - _started).TotalSeconds} s";
+        _clock.Tick += (_, _) => StatusText.Text = $"{AiService.Asking()}  {(int)(DateTime.Now - _started).TotalSeconds} s";
         Opened += async (_, _) => await RunAsync();
         Closed += (_, _) =>
         {
@@ -118,7 +118,7 @@ public partial class AiResultWindow : Window
             foreach (var button in _actions) button.IsEnabled = false;
             CopyButton.IsEnabled = false;
             SpeakButton.IsEnabled = false;
-            StatusText.Text = $"Asking {AiService.DisplayName}…";
+            StatusText.Text = AiService.Asking();
             _clock.Start();
         }
         else

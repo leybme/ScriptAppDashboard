@@ -55,6 +55,25 @@ public static class AiService
         ? Command
         : "Claude " + (ClaudeModels.FirstOrDefault(m => m.Id == (_config?.AiModel ?? DefaultModel)).Label?.Split(" —")[0] ?? _config?.AiModel);
 
+    /// <summary>The status line every AI feature shows while it waits: "✨ Asking Claude Haiku 5.5…" or "… to set up the timer…".</summary>
+    public static string Asking(string? task = null) =>
+        task is null ? $"✨ Asking {DisplayName}…" : $"✨ Asking {DisplayName} to {task}…";
+
+    /// <summary>The message every AI feature shows when a request failed.</summary>
+    public static string Failed(AiResult result) => "AI failed: " + result.Text;
+
+    /// <summary>
+    /// A note made from an AI answer (Markdown). The outer code fence some models wrap around the answer is removed,
+    /// and <paramref name="intro"/> (e.g. the question or the script path) goes in front. Save it with <c>App.AddNote</c>.
+    /// </summary>
+    public static NoteItem AnswerToNote(string title, string tags, string answer, string? intro = null) => new()
+    {
+        Title = title,
+        Tags = tags,
+        Html = NoteDocument.ToHtml(NoteDocument.FromMarkdown(
+            (intro is { Length: > 0 } ? intro + "\n\n" : "") + StripOuterFence(answer))),
+    };
+
     /// <summary>The answer language chosen in Settings; empty when the AI should follow the content.</summary>
     public static string Language => _config?.AiLanguage?.Trim() ?? "";
 

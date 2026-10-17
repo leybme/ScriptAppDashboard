@@ -344,12 +344,7 @@ public partial class MainWindow : Window
         var choice = await AiResultWindow.Show(this, $"What “{item.Name}” does", ct => AiService.AskAsync(prompt, ct),
             ("note", "Save as note"));
         if (choice is not { } c) return;
-        var note = new NoteItem
-        {
-            Title = $"Script: {item.Name}",
-            Tags = "#script #ai",
-            Html = NoteDocument.ToHtml(NoteDocument.FromMarkdown($"`{item.ScriptPath}`\n\n" + AiService.StripOuterFence(c.Text))),
-        };
+        var note = AiService.AnswerToNote($"Script: {item.Name}", "#script #ai", c.Text, $"`{item.ScriptPath}`");
         try
         {
             AppRef.AddNote(note);
