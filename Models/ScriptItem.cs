@@ -26,6 +26,12 @@ public class AppConfig
     public List<ScriptItem> Scripts { get; set; } = new();
     public List<IntervalTimerItem> Timers { get; set; } = new();
 
+    /// <summary>The room the tab content gets next to the chat and the tab list; what the user last dragged the window to.</summary>
+    public double ContentWidth { get; set; } = 800;
+
+    /// <summary>The main window stays above all other windows (the "Pin to top" button).</summary>
+    public bool PinToTop { get; set; }
+
     /// <summary>"system" (follow the OS), "dark" or "light".</summary>
     public string Theme { get; set; } = "system";
 

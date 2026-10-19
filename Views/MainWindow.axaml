@@ -5,7 +5,7 @@
         x:Class="ScriptAppDashboard.Views.MainWindow"
         Title="Toolshed360"
         Width="452" Height="680"
-        MinWidth="92" MinHeight="460"
+        MinWidth="92" MinHeight="600"
         Icon="/Assets/icon.png"
         WindowStartupLocation="CenterScreen">
   <Grid x:Name="Root" ColumnDefinitions="*,Auto,0">
@@ -30,6 +30,8 @@
                   Click="TodayButton_Click"/>
           <ToggleButton x:Name="ChatButton" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                         AutomationProperties.Name="Ask AI" Click="ChatButton_Click"/>
+          <ToggleButton x:Name="PinButton" Content="Pin to top" FontSize="11" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                        AutomationProperties.Name="Pin to top" Click="PinButton_Click"/>
           <Button Content="Hide to Tray" FontSize="11" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                   ToolTip.Tip="Keep Toolshed360 running in the tray" Click="HideButton_Click"/>
         </StackPanel>

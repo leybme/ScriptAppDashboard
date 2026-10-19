@@ -32,22 +32,27 @@ public partial class CaptureEditorWindow : Window
     private static readonly string[] Palette =
         { "#E53935", "#FB8C00", "#FDD835", "#43A047", "#1E88E5", "#8E24AA", "#000000", "#FFFFFF" };
 
-    private static readonly (string Tool, string Label, MaterialIconKind Icon, string Hint)[] Tools =
+    /// <summary>The tools in toolbar order; <c>Group</c> starts a new group (a separator before it).</summary>
+    private static readonly (string Tool, string Label, MaterialIconKind Icon, Key Key, bool Group, string Hint)[] Tools =
     {
-        (AnnotationSurface.SelectTool, "Select", MaterialIconKind.CursorDefaultOutline, "Click a shape to select it, drag to move it, drag a handle to reshape it. Double-click to type. Ctrl+drag (or Ctrl+D) copies. Arrow keys nudge, Delete removes."),
-        (AnnotationKind.Box, "Box", MaterialIconKind.RectangleOutline, "Drag to draw a box. Shift = square."),
-        (AnnotationKind.Ellipse, "Ellipse", MaterialIconKind.EllipseOutline, "Drag to draw an ellipse. Shift = circle."),
-        (AnnotationKind.Arrow, "Arrow", MaterialIconKind.ArrowTopRight, "Drag from the tail to the point. Shift = 45° steps."),
-        (AnnotationKind.Line, "Line", MaterialIconKind.VectorLine, "Drag to draw a line. Shift = 45° steps."),
-        (AnnotationKind.Text, "Text", MaterialIconKind.FormatText, "Click, then type in the panel on the right. Drag to set the wrap width."),
-        (AnnotationKind.Callout, "Callout", MaterialIconKind.CommentTextOutline, "Press where the box goes, drag to the thing it points at (the anchor), then type."),
-        (AnnotationSurface.TextTool, "Grab text", MaterialIconKind.TextRecognition, "Drag over the text in the picture (or click a line) to copy it. The lines found are outlined."),
-        (AnnotationKind.Step, "Step", MaterialIconKind.Numeric1CircleOutline, "Click to drop the next numbered marker; add a short label on the right."),
-        (AnnotationKind.Highlight, "Highlight", MaterialIconKind.Marker, "Drag over text to mark it with a translucent colour."),
-        (AnnotationKind.Redact, "Redact", MaterialIconKind.Square, "Drag over anything private to cover it with a solid block."),
-        (AnnotationKind.Blur, "Blur", MaterialIconKind.Blur, "Drag over anything private to pixelate it."),
-        (AnnotationSurface.CropTool, "Crop", MaterialIconKind.Crop, "Drag the area to keep. This changes the saved picture (Undo brings it back)."),
+        (AnnotationSurface.SelectTool, "Select", MaterialIconKind.CursorDefaultOutline, Key.V, false, "Click a shape to select it, drag to move it, drag a handle to reshape it. Double-click to type. Ctrl+drag (or Ctrl+D) copies. Arrow keys nudge, Delete removes."),
+        (AnnotationKind.Box, "Box", MaterialIconKind.RectangleOutline, Key.R, true, "Drag to draw a box. Shift = square."),
+        (AnnotationKind.Ellipse, "Ellipse", MaterialIconKind.EllipseOutline, Key.E, false, "Drag to draw an ellipse. Shift = circle."),
+        (AnnotationKind.Arrow, "Arrow", MaterialIconKind.ArrowTopRight, Key.A, false, "Drag from the tail to the point. Shift = 45° steps."),
+        (AnnotationKind.Line, "Line", MaterialIconKind.VectorLine, Key.L, false, "Drag to draw a line. Shift = 45° steps."),
+        (AnnotationKind.Text, "Text", MaterialIconKind.FormatText, Key.T, true, "Click, then type in the panel on the right (Esc goes back to the picture). Drag to set the wrap width."),
+        (AnnotationKind.Callout, "Callout", MaterialIconKind.CommentTextOutline, Key.S, false, "Press where the box goes, drag to the thing it points at (the anchor), then type."),
+        (AnnotationKind.Step, "Step", MaterialIconKind.Numeric1CircleOutline, Key.N, false, "Click to drop the next numbered marker; add a short label on the right. Stays on for the next step (Esc ends)."),
+        (AnnotationKind.Highlight, "Highlight", MaterialIconKind.Marker, Key.H, true, "Drag over text to mark it with a translucent colour. Stays on for the next one (Esc ends)."),
+        (AnnotationKind.Redact, "Redact", MaterialIconKind.Square, Key.X, false, "Drag over anything private to cover it with a solid block. Stays on for the next one (Esc ends)."),
+        (AnnotationKind.Blur, "Blur", MaterialIconKind.Blur, Key.B, false, "Drag over anything private to pixelate it. Stays on for the next one (Esc ends)."),
+        (AnnotationSurface.TextTool, "Grab text", MaterialIconKind.TextRecognition, Key.G, true, "Drag over the text in the picture (or click a line) to copy it. The lines found are outlined."),
+        (AnnotationSurface.CropTool, "Crop", MaterialIconKind.Crop, Key.C, false, "Drag the area to keep. This changes the saved picture (Undo brings it back)."),
     };
+
+    /// <summary>Tools used several times in a row (steps 1, 2, 3; every e-mail address): they stay on after a shape.</summary>
+    private static bool IsRepeatTool(string tool)
+        => tool is AnnotationKind.Step or AnnotationKind.Highlight or AnnotationKind.Redact or AnnotationKind.Blur;
 
     private static readonly string[] AiExampleList =
     {
@@ -79,6 +84,8 @@ public partial class CaptureEditorWindow : Window
     private bool _editUndoPushed;
     private bool _syncingTools;
     private double _zoom = 1;
+    private Annotation? _lastSelected;
+    private bool _discarded;
 
     public Guid CaptureId => _item.Id;
 
@@ -90,6 +97,10 @@ public partial class CaptureEditorWindow : Window
         InitializeComponent();
         _item = item;
         _pixels = LoadPixels(item);
+        // a small picture gets a smaller window (the panel on the right is 310 wide, the bars about 200 high);
+        // 900 × 600 still holds the tools on one row and the panel's fields
+        Width = Math.Clamp(_pixels.Width + 310 + 60, 900, Width);
+        Height = Math.Clamp(_pixels.Height + 210, 600, Height);
         _surface.Items = item.Annotations.Select(a => a.Clone()).ToList();
         _surface.SetImage(_pixels);
         _surface.DrawColor = _color;
@@ -121,11 +132,18 @@ public partial class CaptureEditorWindow : Window
         _surface.BeforeChange += () => PushUndo();
         _surface.Changed += MarkDirty;
         _surface.SelectionChanged += SelectionChanged;
-        _surface.ToolDone += () => SelectTool(AnnotationSurface.SelectTool);
+        _surface.ToolDone += ToolDone;
         _surface.CropRequested += Crop;
         _surface.OcrLines = _item.Ocr;
         _surface.TextGrabbed += GrabbedText;
         _surface.TextRequested += _ => { AnnotationTextBox.Focus(); AnnotationTextBox.SelectAll(); };
+        // Esc while typing goes back to the picture, so Delete, the arrow keys and the tool keys work again
+        AnnotationTextBox.AddHandler(KeyDownEvent, (_, e) =>
+        {
+            if (e.Key != Key.Escape) return;
+            _surface.Focus();
+            e.Handled = true;
+        }, RoutingStrategies.Tunnel);
 
         _autosave.Tick += (_, _) =>
         {
@@ -136,7 +154,12 @@ public partial class CaptureEditorWindow : Window
         Viewer.AddHandler(PointerWheelChangedEvent, Viewer_Wheel, RoutingStrategies.Tunnel);
         Opened += (_, _) => ApplyFit();
         Closing += (_, _) => { _aiCts?.Cancel(); SaveNow(); };
-        Closed += (_, _) => _ = CaptureAi.AutoDescribeAsync(_item.Id).ContinueWith(_ => { }, TaskScheduler.Default);
+        Closed += (_, _) =>
+        {
+            // like notes: only with "AI title and tags" on in Settings, since the text in the picture goes to the AI
+            if (AppRef.Config.AiAutoTitle && !_discarded)
+                _ = CaptureAi.AutoDescribeAsync(_item.Id).ContinueWith(_ => { }, TaskScheduler.Default);
+        };
 
         Title = "Capture — " + CaptureService.DisplayTitle(item);
         SourceText.Text = (item.SourceApp.Length > 0 ? $"From {item.SourceApp}" + (item.SourceTitle.Length > 0 ? $" — {item.SourceTitle}" : "") + "\n" : "")
@@ -160,20 +183,18 @@ public partial class CaptureEditorWindow : Window
 
     private void BuildTools()
     {
-        foreach (var (tool, label, icon, hint) in Tools)
+        foreach (var (tool, label, icon, key, group, hint) in Tools)
         {
+            if (group)
+                ToolHost.Children.Add(new Border { Width = 1, Height = 22, Margin = new Thickness(4, 0, 8, 0), Background = new SolidColorBrush(Color.FromArgb(0x40, 0x80, 0x80, 0x80)) });
+            // icons only, so every tool fits on one row; the hint line under the colours names the active tool
             var button = new ToggleButton
             {
                 Classes = { "tool" },
-                Content = new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = 5,
-                    Children = { new MaterialIcon { Kind = icon, Width = 16, Height = 16 }, new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center } },
-                },
+                Content = new MaterialIcon { Kind = icon, Width = 18, Height = 18 },
             };
             Avalonia.Automation.AutomationProperties.SetName(button, label + " tool");
-            ToolTip.SetTip(button, hint);
+            ToolTip.SetTip(button, $"{label} ({key})\n{hint}");
             var captured = tool;
             // IsCheckedChanged (not Click) so UI Automation and the keyboard select the tool too
             button.IsCheckedChanged += (_, _) =>
@@ -193,13 +214,26 @@ public partial class CaptureEditorWindow : Window
         _syncingTools = true;
         foreach (var (key, button) in _toolButtons) button.IsChecked = key == tool;
         _syncingTools = false;
-        HintText.Text = Tools.First(t => t.Tool == tool).Hint;
+        var info = Tools.First(t => t.Tool == tool);
+        HintText.Text = $"{info.Label} ({info.Key}): {info.Hint}";
         ToolTip.SetTip(HintText, HintText.Text); // the full hint when the window is too narrow
         _surface.Cursor = new Cursor(tool == AnnotationSurface.SelectTool ? StandardCursorType.Arrow : StandardCursorType.Cross);
         if (tool != AnnotationSurface.SelectTool) _surface.Select(null);
         if (tool != AnnotationSurface.TextTool) _surface.ClearGrab();
         _surface.OcrLines = _item.Ocr;
         _surface.Refresh();
+    }
+
+    /// <summary>After a shape: back to Select, except for the tools used several times in a row.</summary>
+    private void ToolDone()
+    {
+        if (!IsRepeatTool(_surface.Tool))
+        {
+            SelectTool(AnnotationSurface.SelectTool);
+            return;
+        }
+        // a step stays selected so its label can be typed; the others let go, the next drag makes a new one anyway
+        if (_surface.Tool != AnnotationKind.Step) _surface.Select(null);
     }
 
     private void BuildColors()
@@ -250,6 +284,7 @@ public partial class CaptureEditorWindow : Window
     private void WidthChanged()
     {
         _surface.StrokeWidth = WidthSlider.Value;
+        WidthValue.Text = $"{WidthSlider.Value:0} px";
         if (_loading || _surface.Selected is not { } a) return;
         PushUndoOnce();
         a.Width = WidthSlider.Value;
@@ -260,6 +295,7 @@ public partial class CaptureEditorWindow : Window
     private void FontChanged()
     {
         _surface.FontSize = FontSlider.Value;
+        FontValue.Text = $"{FontSlider.Value:0} px";
         if (_loading || _surface.Selected is not { } a) return;
         PushUndoOnce();
         a.FontSize = FontSlider.Value;
@@ -299,6 +335,15 @@ public partial class CaptureEditorWindow : Window
     {
         _editUndoPushed = false;
         var a = _surface.Selected;
+        // a text that was left empty is invisible: drop it instead of keeping a shape nobody can see
+        if (_lastSelected is { Kind: AnnotationKind.Text } left && !ReferenceEquals(left, a) && string.IsNullOrWhiteSpace(left.Text)
+            && _surface.Items.Remove(left))
+        {
+            _surface.Refresh();
+            MarkDirty();
+        }
+        _lastSelected = a;
+        DeleteAnnotationButton.IsEnabled = a is not null;
         _loading = true;
         try
         {
@@ -767,9 +812,16 @@ public partial class CaptureEditorWindow : Window
     private async void DeleteCapture_Click(object? sender, RoutedEventArgs e)
     {
         if (!await Dialogs.Confirm(this, "Delete capture", "Delete this capture and its annotations? Notes that already contain the picture keep their own copy.", "Delete")) return;
+        AppRef.DeleteCapture(_item.Id);
+    }
+
+    /// <summary>Closes without saving: the capture was deleted.</summary>
+    public void Discard()
+    {
+        _discarded = true;
         _dirty = false;
         _autosave.Stop();
-        CaptureService.Delete(_item.Id);
+        _aiCts?.Cancel();
         Close();
     }
 
@@ -797,6 +849,26 @@ public partial class CaptureEditorWindow : Window
         {
             if (_surface.Tool != AnnotationSurface.SelectTool) SelectTool(AnnotationSurface.SelectTool);
             else _surface.Select(null);
+            e.Handled = true;
+        }
+        else if (ctrl && e.Key is Key.D0 or Key.NumPad0)
+        {
+            ApplyFit();
+            e.Handled = true;
+        }
+        else if (ctrl && e.Key is Key.OemPlus or Key.Add)
+        {
+            ZoomIn_Click(null, new RoutedEventArgs());
+            e.Handled = true;
+        }
+        else if (ctrl && e.Key is Key.OemMinus or Key.Subtract)
+        {
+            ZoomOut_Click(null, new RoutedEventArgs());
+            e.Handled = true;
+        }
+        else if (e.KeyModifiers == KeyModifiers.None && !inText && !e.Handled && Tools.FirstOrDefault(t => t.Key == e.Key) is { Tool: not null } tool)
+        {
+            SelectTool(tool.Tool);
             e.Handled = true;
         }
         base.OnKeyDown(e);

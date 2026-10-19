@@ -33,7 +33,13 @@ public partial class CapturesView : ShellTab
             await ReloadAsync();
         };
         QueryBox.TextChanged += (_, _) => { _debounce.Stop(); _debounce.Start(); };
-        Action<Guid> changed = _ => Dispatcher.UIThread.Post(() => { _debounce.Stop(); _debounce.Start(); });
+        // an open editor saves every second while you draw: a hidden gallery waits for OnShown instead of rebuilding
+        Action<Guid> changed = _ => Dispatcher.UIThread.Post(() =>
+        {
+            if (!IsEffectivelyVisible) return;
+            _debounce.Stop();
+            _debounce.Start();
+        });
         CaptureService.Changed += changed;
         RegionButton.IsVisible = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
         ScreenButton.IsVisible = OperatingSystem.IsWindows();
@@ -145,20 +151,64 @@ public partial class CapturesView : ShellTab
             VerticalAlignment = VerticalAlignment.Top,
         };
         Avalonia.Automation.AutomationProperties.SetName(button, "Open capture " + CaptureService.DisplayTitle(c));
-        ToolTip.SetTip(button, "Open in the editor");
+        ToolTip.SetTip(button, "Open in the editor (right-click for more)");
         button.Click += (_, _) => AppRef.ShowCapture(c.Id);
+        button.KeyDown += async (_, e) =>
+        {
+            if (e.Key != Key.Delete) return;
+            e.Handled = true;
+            await DeleteAsync(c);
+        };
+        var open = new MenuItem { Header = "Open" };
+        open.Click += (_, _) => AppRef.ShowCapture(c.Id);
+        var copy = new MenuItem { Header = "Copy image" };
+        copy.Click += (_, _) => CopyImage(c);
+        var delete = new MenuItem { Header = "Delete…", InputGesture = new KeyGesture(Key.Delete) };
+        delete.Click += async (_, _) => await DeleteAsync(c);
+        button.ContextMenu = new ContextMenu { ItemsSource = new[] { open, copy, delete } };
         return button;
     }
+
+    private void CopyImage(CaptureItem c)
+    {
+        try
+        {
+            SummaryText.Text = ClipboardImageService.TrySetImage(File.ReadAllBytes(CaptureService.BestImage(c.Id)))
+                ? $"Copied “{CaptureService.DisplayTitle(c)}” to the clipboard."
+                : "Could not copy — another program may be using the clipboard.";
+        }
+        catch (Exception ex)
+        {
+            SummaryText.Text = "Could not copy the picture: " + ex.Message;
+        }
+    }
+
+    private async Task DeleteAsync(CaptureItem c)
+    {
+        if (!await Dialogs.Confirm(this, "Delete capture", $"Delete “{CaptureService.DisplayTitle(c)}” and its annotations? Notes that already contain the picture keep their own copy.", "Delete")) return;
+        AppRef.DeleteCapture(c.Id);
+        await ReloadAsync();
+    }
+
+    /// <summary>Decoded thumbnails by file, with the file's time: a reload only decodes the pictures that changed.</summary>
+    private static readonly Dictionary<string, (DateTime Stamp, Bitmap Bitmap)> Thumbnails = new();
 
     private static async Task LoadThumbnailAsync(Image image, string path)
     {
         try
         {
+            var stamp = File.GetLastWriteTimeUtc(path);
+            if (Thumbnails.TryGetValue(path, out var cached))
+            {
+                image.Source = cached.Bitmap; // the old picture until the new one is decoded, so the card doesn't flash
+                if (cached.Stamp == stamp) return;
+            }
             var bitmap = await Task.Run(() =>
             {
                 using var stream = File.OpenRead(path);
                 return Bitmap.DecodeToWidth(stream, 480);
             });
+            Thumbnails[path] = (stamp, bitmap);
             image.Source = bitmap;
         }
         catch

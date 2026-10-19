@@ -26,18 +26,18 @@
           <Button x:Name="RedoButton" Classes="tool" AutomationProperties.Name="Redo" ToolTip.Tip="Redo (Ctrl+Y)" Click="Redo_Click">
             <materialIcons:MaterialIcon Kind="Redo" Width="16" Height="16"/>
           </Button>
-          <Button Classes="tool" AutomationProperties.Name="Delete annotation" ToolTip.Tip="Delete the selected annotation (Delete)" Click="DeleteAnnotation_Click">
+          <Button x:Name="DeleteAnnotationButton" Classes="tool" AutomationProperties.Name="Delete annotation" ToolTip.Tip="Delete the selected annotation (Delete)" Click="DeleteAnnotation_Click">
             <materialIcons:MaterialIcon Kind="DeleteOutline" Width="16" Height="16"/>
           </Button>
-          <Button Classes="tool" AutomationProperties.Name="Zoom out" ToolTip.Tip="Zoom out" Click="ZoomOut_Click">
+          <Button Classes="tool" AutomationProperties.Name="Zoom out" ToolTip.Tip="Zoom out (Ctrl+-)" Click="ZoomOut_Click">
             <materialIcons:MaterialIcon Kind="MagnifyMinusOutline" Width="16" Height="16"/>
           </Button>
-          <Button x:Name="ZoomText" Classes="tool" AutomationProperties.Name="Fit to window" ToolTip.Tip="Fit the picture to the window" MinWidth="56" Content="Fit" Click="ZoomFit_Click"/>
-          <Button Classes="tool" AutomationProperties.Name="Zoom in" ToolTip.Tip="Zoom in" Click="ZoomIn_Click">
+          <Button x:Name="ZoomText" Classes="tool" AutomationProperties.Name="Fit to window" ToolTip.Tip="Fit the picture to the window (Ctrl+0); click again for the real size" MinWidth="56" Content="Fit" Click="ZoomFit_Click"/>
+          <Button Classes="tool" AutomationProperties.Name="Zoom in" ToolTip.Tip="Zoom in (Ctrl++)" Click="ZoomIn_Click">
             <materialIcons:MaterialIcon Kind="MagnifyPlusOutline" Width="16" Height="16"/>
           </Button>
         </StackPanel>
-        <WrapPanel x:Name="ToolHost" Orientation="Horizontal"/>
+        <WrapPanel x:Name="ToolHost" Orientation="Horizontal" VerticalAlignment="Center"/>
       </DockPanel>
     </Border>
 
@@ -48,10 +48,14 @@
         <StackPanel x:Name="ColorHost" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"/>
         <TextBlock Text="Line" VerticalAlignment="Center" Margin="20,0,8,0" Opacity="0.7"/>
         <Slider x:Name="WidthSlider" Minimum="1" Maximum="20" Value="4" Width="110" VerticalAlignment="Center"
+                IsSnapToTickEnabled="True" TickFrequency="1"
                 AutomationProperties.Name="Line width" ToolTip.Tip="Line width"/>
-        <TextBlock Text="Text size" VerticalAlignment="Center" Margin="20,0,8,0" Opacity="0.7"/>
+        <TextBlock x:Name="WidthValue" Text="4 px" MinWidth="40" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="12" Opacity="0.7"/>
+        <TextBlock Text="Text size" VerticalAlignment="Center" Margin="14,0,8,0" Opacity="0.7"/>
         <Slider x:Name="FontSlider" Minimum="10" Maximum="96" Value="28" Width="110" VerticalAlignment="Center"
+                IsSnapToTickEnabled="True" TickFrequency="1"
                 AutomationProperties.Name="Text size" ToolTip.Tip="Text size"/>
+        <TextBlock x:Name="FontValue" Text="28 px" MinWidth="40" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="12" Opacity="0.7"/>
       </WrapPanel>
     </Border>
 

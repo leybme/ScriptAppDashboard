@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -40,6 +42,12 @@ public sealed class CaptureOverlayWindow : Window
             Width = shot.Width / scale;
             Height = shot.Height / scale;
             Position = new PixelPoint(shot.Left, shot.Top);
+            // the monitors in the screenshot's pixels, so the hint sits on one monitor instead of across the bezel
+            _surface.Monitors = Screens.All
+                .Select(s => new PixelRect(s.Bounds.X - shot.Left, s.Bounds.Y - shot.Top, s.Bounds.Width, s.Bounds.Height))
+                .OrderByDescending(r => Screens.Primary is { } p && r.X == p.Bounds.X - shot.Left && r.Y == p.Bounds.Y - shot.Top)
+                .ToList();
+            _surface.InvalidateVisual();
             Activate();
             _surface.Focus();
         };
@@ -63,7 +71,10 @@ public sealed class CaptureOverlayWindow : Window
         private readonly Bitmap _bitmap;
         private bool _dragging;
         private Point _start, _now;
-        private Point _hover;
+        private Point _hover = new(double.NaN, double.NaN);
+
+        /// <summary>The monitors in the screenshot's pixels, the primary one first.</summary>
+        public List<PixelRect> Monitors { get; set; } = new();
 
         public event Action<Pixels?>? Finished;
 
@@ -120,13 +131,31 @@ public sealed class CaptureOverlayWindow : Window
                     Label(ctx, "Click to capture this window", new Point(t.X + 6, t.Y + 6));
                 }
             }
-            Label(ctx, "Drag to select a region  ·  F = whole screen  ·  Esc = cancel", new Point(full.Width / 2 - 190, 12));
+            if (!_dragging)
+            {
+                var hint = Format("Drag to select a region" + (_shot.WindowRect is not null ? "  ·  click the outlined window to take it" : "")
+                                  + "  ·  F = whole screen  ·  Esc or right-click = cancel");
+                var monitor = HintMonitor();
+                Label(ctx, hint, new Point(monitor.X + (monitor.Width - hint.Width) / 2, monitor.Y + 12));
+            }
         }
 
-        private static void Label(DrawingContext ctx, string text, Point at)
+        /// <summary>The monitor under the mouse (the primary one before it moves), in view units.</summary>
+        private Rect HintMonitor()
         {
-            var f = new FormattedText(text, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
-                Typeface.Default, 13, Brushes.White);
+            var s = Scale;
+            var view = Monitors.Select(m => new Rect(m.X / s, m.Y / s, m.Width / s, m.Height / s)).ToList();
+            return view.FirstOrDefault(r => r.Contains(_hover)) is { Width: > 0 } under ? under
+                : view.Count > 0 ? view[0] : new Rect(Bounds.Size);
+        }
+
+        private static FormattedText Format(string text)
+            => new(text, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, Typeface.Default, 13, Brushes.White);
+
+        private static void Label(DrawingContext ctx, string text, Point at) => Label(ctx, Format(text), at);
+
+        private static void Label(DrawingContext ctx, FormattedText f, Point at)
+        {
             ctx.DrawRectangle(new SolidColorBrush(Color.FromArgb(200, 20, 20, 20)), null,
                 new Rect(at.X - 6, at.Y - 3, f.Width + 12, f.Height + 6), 4, 4);
             ctx.DrawText(f, at);

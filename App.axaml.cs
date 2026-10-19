@@ -274,6 +274,13 @@ public partial class App : Application
         }
     }
 
+    /// <summary>Deletes a capture; its open editor closes without saving (it would write the capture back).</summary>
+    public void DeleteCapture(Guid id)
+    {
+        if (_captureEditors.TryGetValue(id, out var open)) open.Discard();
+        CaptureService.Delete(id);
+    }
+
     /// <summary>Saves pixels (a screenshot or a picture file) as a new capture and opens the editor on it.</summary>
     public void OpenCaptureFrom(Pixels pixels, OpenWindow? source)
     {

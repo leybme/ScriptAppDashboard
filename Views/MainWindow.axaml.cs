@@ -53,11 +53,15 @@ public partial class MainWindow : Window
         AddTab("search", "Search", MaterialIconKind.Magnify, "Search notes and the work log together (Ctrl+F)", () => new SearchView());
         AddTab("settings", "Settings", MaterialIconKind.CogOutline, "Settings", () => new SettingsView());
 
+        _contentRoom = Math.Clamp(Config.ContentWidth, 400, 4000); // the width the content had when it was last closed
         ApplyColumns();
         _dock = new AiPanelDock(ChatPanel, startVisible: true,
             resize: (was, now) => ResizeFor(chatWas: was, chatNow: now, contentWas: _contentOpen, contentNow: _contentOpen));
+        MaxWidth = WidthFor(_dock.IsVisible, false); // the window starts as chat + tab list and can't be widened until a tab is opened
         _dock.Changed += () => { ApplyColumns(); ApplyCompact(); ApplyChatButton(); };
         ApplyChatButton();
+        Topmost = Config.PinToTop;
+        ApplyPinButton();
         ApplyAskAiTip();
         AppRef.SettingsChanged += ApplyAskAiTip;
         AppRef.SettingsChanged += UpdateToday;
@@ -143,12 +147,26 @@ public partial class MainWindow : Window
     private const double StripWidth = 92;
 
     /// <summary>The room the tab content needs next to the tab list and the chat.</summary>
-    private const double ContentRoom = 800;
+    private double _contentRoom = 800;
+
+    /// <summary>
+    /// The room the content has now (the window's width minus the chat and the tab list) becomes the width the content opens
+    /// with next time, and is saved, so a window dragged wider is not forgotten when the content is collapsed or the app restarts.
+    /// </summary>
+    private void RememberContentRoom()
+    {
+        if (!_contentOpen || WindowState != WindowState.Normal) return;
+        var room = Width - WidthFor(_dock.IsVisible, false);
+        if (room < 400 || Math.Abs(room - _contentRoom) < 2) return;
+        _contentRoom = room;
+        Config.ContentWidth = room;
+        try { AppRef.SaveConfig(); } catch { /* remembered for this run */ }
+    }
 
     public bool IsContentOpen => _contentOpen;
 
     /// <summary>The window width for a state: the tab list, plus the chat with its margins, plus the content.</summary>
-    private double WidthFor(bool chat, bool content) => StripWidth + (chat ? _dock.Room : 0) + (content ? ContentRoom : 0);
+    private double WidthFor(bool chat, bool content) => StripWidth + (chat ? _dock.Room : 0) + (content ? _contentRoom : 0);
 
     /// <summary>
     /// Sets the window width for a change of state. It is computed from the state, not added up: Windows keeps a window from
@@ -157,8 +175,14 @@ public partial class MainWindow : Window
     /// </summary>
     private void ResizeFor(bool chatWas, bool chatNow, bool contentWas, bool contentNow)
     {
+        // With the content collapsed the window is exactly the chat and the tab list, and can't be made wider: the chat keeps its
+        // width instead of stretching over whatever width the tab content had been given.
+        MaxWidth = !contentNow && chatNow ? WidthFor(true, false) : double.PositiveInfinity;
+        // a maximized window can't get that narrow: collapsing the content brings it back to its normal size first
+        if (!contentNow && WindowState != WindowState.Normal) WindowState = WindowState.Normal;
         if (WindowState != WindowState.Normal) return;
-        var extra = chatWas || contentWas ? Math.Max(0, Width - WidthFor(chatWas, contentWas)) : 0;
+        // the width the user dragged on is kept only while the content is open
+        var extra = contentNow && (chatWas || contentWas) ? Math.Max(0, Width - WidthFor(chatWas, contentWas)) : 0;
         Width = Math.Min(WidthFor(chatNow, contentNow) + extra, AiPanelDock.AvailableWidth(this) ?? double.MaxValue);
     }
 
@@ -166,6 +190,7 @@ public partial class MainWindow : Window
     public void ShowContent(bool open)
     {
         if (_contentOpen == open) return;
+        if (!open) RememberContentRoom(); // before the window shrinks: its width now is what the user chose
         ResizeFor(chatWas: _dock.IsVisible, chatNow: _dock.IsVisible, contentWas: _contentOpen, contentNow: open);
         _contentOpen = open;
         TabHost.IsVisible = open;
@@ -213,7 +238,7 @@ public partial class MainWindow : Window
         {
             SystemDecorations = SystemDecorations.Full;
             CanResize = true;
-            MinHeight = 460;
+            MinHeight = 600; // the tab list and its bottom buttons need this much
         }
         // changing the frame makes Windows resize the window (seen as a user resize, which also turns SizeToContent off):
         // set the size once that is done
@@ -259,6 +284,7 @@ public partial class MainWindow : Window
     /// <summary>Saves what the tabs hold unsaved (a note being edited); used before the window hides and when the app quits.</summary>
     public void FlushTabs()
     {
+        RememberContentRoom();
         foreach (var tab in _tabs) tab.View?.OnHidden();
     }
 
@@ -299,6 +325,21 @@ public partial class MainWindow : Window
                 new TextBlock { Text = "Ask AI", FontSize = 11, HorizontalAlignment = HorizontalAlignment.Center },
             },
         };
+    }
+
+    /// <summary>Keeps the window above all other windows, or lets it go behind them again; the choice is remembered.</summary>
+    private void PinButton_Click(object? sender, RoutedEventArgs e)
+    {
+        Topmost = !Topmost;
+        Config.PinToTop = Topmost;
+        try { AppRef.SaveConfig(); } catch { /* the window stays pinned for this run */ }
+        ApplyPinButton();
+    }
+
+    private void ApplyPinButton()
+    {
+        PinButton.IsChecked = Topmost;
+        ToolTip.SetTip(PinButton, Topmost ? "Pinned: the window stays above other windows. Click to unpin." : "Keep this window above all other windows");
     }
 
     private void ApplyAskAiTip()

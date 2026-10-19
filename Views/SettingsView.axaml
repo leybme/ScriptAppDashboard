@@ -161,7 +161,7 @@
             <TextBlock x:Name="AiHotkeyText" FontSize="12" Foreground="Gray" TextWrapping="Wrap"/>
 
             <CheckBox x:Name="AiAutoTitleCheck" Margin="0,6,0,0"
-                      Content="Give notes saved without a title an AI title and tags"/>
+                      Content="Give notes and captures saved without a title an AI title and tags"/>
             <CheckBox x:Name="AiDaySummaryCheck" Content="End-of-day summary: when working hours end, write an AI report of the day into a note"/>
             <TextBlock x:Name="AiDaySummaryText" FontSize="12" Foreground="Gray" TextWrapping="Wrap" Margin="28,-6,0,0"/>
 
