@@ -1,19 +1,27 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="using:ScriptAppDashboard.Views"
+        xmlns:mi="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
         x:Class="ScriptAppDashboard.Views.MainWindow"
         Title="Toolshed360"
-        Width="1200" Height="680"
-        MinWidth="900" MinHeight="460"
+        Width="452" Height="680"
+        MinWidth="92" MinHeight="460"
         Icon="/Assets/icon.png"
         WindowStartupLocation="CenterScreen">
-  <Grid ColumnDefinitions="*,Auto,Auto">
-    <!-- the tab in front; every tab that was opened stays here, hidden, so nothing it holds is lost -->
-    <Panel x:Name="TabHost" Grid.Column="0"/>
+  <Grid x:Name="Root" ColumnDefinitions="*,Auto,0">
+    <!-- one AI chat for the whole app, on the left; it follows the tab in front. It is open when the app starts; it takes the
+         whole width while the tab content is collapsed (the window starts that way). -->
+    <views:AiChatPanel x:Name="ChatPanel" Grid.Column="0" Margin="12,12,8,12"/>
 
-    <!-- the tabs: one button per part of the app, between the content and the AI chat -->
-    <Border Grid.Column="1" Padding="6" Background="#18808080">
+    <!-- the tabs: one button per part of the app, between the AI chat and the content -->
+    <Border x:Name="Strip" Grid.Column="1" Padding="6" Background="#18808080">
       <DockPanel>
+        <!-- only the tab list showing: the window has no title bar (one doesn't fit), so this handle moves it -->
+        <Border x:Name="Grip" DockPanel.Dock="Top" IsVisible="False" Height="20" Margin="0,-2,0,4"
+                Background="Transparent" Cursor="SizeAll" PointerPressed="Grip_PointerPressed"
+                AutomationProperties.Name="Move the window" ToolTip.Tip="Drag to move">
+          <mi:MaterialIcon Kind="DragHorizontalVariant" Width="20" Height="20" Foreground="Gray"/>
+        </Border>
         <StackPanel DockPanel.Dock="Bottom" Spacing="4">
           <Button x:Name="TodayButton" Padding="4,4" FontSize="11" Background="Transparent" Foreground="Gray"
                   HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" IsVisible="False"
@@ -29,7 +37,7 @@
       </DockPanel>
     </Border>
 
-    <!-- one AI chat for the whole app; it follows the tab in front. It is open when the app starts. -->
-    <views:AiChatPanel x:Name="ChatPanel" Grid.Column="2" Width="340" Margin="8,12,12,12"/>
+    <!-- the tab in front, on the right (collapsed until a tab is clicked); every tab that was opened stays here, hidden, so nothing it holds is lost -->
+    <Panel x:Name="TabHost" Grid.Column="2" IsVisible="False"/>
   </Grid>
 </Window>

@@ -76,6 +76,14 @@ public partial class SearchView : ShellTab
         QueryBox.SelectAll();
     }
 
+    /// <summary>Starts a search for these words (the chat's "Open in Search tab").</summary>
+    public void SearchFor(string query)
+    {
+        QueryBox.Text = query;
+        _debounce.Stop();
+        _ = RunSearchAsync();
+    }
+
     protected override void OnKeyDown(KeyEventArgs e)
     {
         if (e.Key == Key.Enter) { _debounce.Stop(); _ = RunSearchAsync(); e.Handled = true; }
@@ -94,7 +102,7 @@ public partial class SearchView : ShellTab
         if (query.Length == 0)
         {
             ResultHost.Children.Clear();
-            SummaryText.Text = "Type a word or two — every word must match. Notes are searched in full; the date range applies to the work log.";
+            SummaryText.Text = "Type a word or two — every word must match. Apps (your tiles), notes (including the words in their pictures) and captures are searched in full; the date range applies to the work log.";
             return;
         }
 
@@ -102,26 +110,25 @@ public partial class SearchView : ShellTab
         var from = today.AddDays(-(RangeCombo.SelectedIndex switch { 0 => 6, 2 => 89, 3 => 364, _ => 29 }));
         SummaryText.Text = "Searching…";
 
-        var (notes, hits, captures) = await Task.Run(() =>
-        {
-            var n = NotesService.Search(NotesService.Load(), query).Take(100).ToList();
-            var h = WorkLogService.Search(query, from, today);
-            var c = CaptureService.Search(CaptureService.Load(), query).Take(50).ToList();
-            return (n, h, c);
-        });
+        var tiles = AppRef.Config.Scripts.ToList(); // a snapshot: the list belongs to the UI thread
+        var results = await Task.Run(() => SearchService.Run(query, tiles, from, today));
         if (version != _version) return; // a newer search started meanwhile
+        var (apps, notes, pictureText, captures, hits) = (results.Apps, results.Notes, results.PictureText, results.Captures, results.Hits);
 
-        _resultLines = notes.Take(30).Select(n => $"Note “{n.Title}” ({n.Updated:yyyy-MM-dd}): {Snippet(NotesService.ToPlainText(n.Html), query)}")
+        _resultLines = apps.Take(15).Select(s => $"App “{s.Name}”: {s.ScriptPath} {s.Arguments}".TrimEnd())
+            .Concat(notes.Take(30).Select(n => pictureText.TryGetValue(n.Id, out var pics)
+                ? $"Note “{n.Title}” ({n.Updated:yyyy-MM-dd}), in a picture: {Snippet(pics, query)}"
+                : $"Note “{n.Title}” ({n.Updated:yyyy-MM-dd}): {Snippet(NotesService.ToPlainText(n.Html), query)}"))
             .Concat(captures.Take(15).Select(h => $"Capture “{CaptureService.DisplayTitle(h.Capture)}”: {h.Where}: {h.Snippet}"))
             .Concat(hits.Take(30).Select(h => $"Work log {h.Day:yyyy-MM-dd} [{h.App}] {h.Text}"))
             .ToList();
         ResultHost.Children.Clear();
         var windowSeconds = hits.Where(h => h.Kind == "window").Sum(h => h.Seconds);
-        SummaryText.Text = $"{notes.Count} note(s) · {captures.Count} capture(s) · {hits.Count} work-log match(es)" +
+        SummaryText.Text = $"{apps.Count} app(s) · {notes.Count} note(s) · {captures.Count} capture(s) · {hits.Count} work-log match(es)" +
                            (windowSeconds > 0 ? $" · {WorkLogService.FormatDuration(windowSeconds)} spent in matching windows" : "") +
                            (hits.Count >= 200 ? " · showing the first 200" : "");
 
-        if (notes.Count == 0 && hits.Count == 0 && captures.Count == 0)
+        if (apps.Count == 0 && notes.Count == 0 && hits.Count == 0 && captures.Count == 0)
         {
             ResultHost.Children.Add(new TextBlock
             {
@@ -132,10 +139,17 @@ public partial class SearchView : ShellTab
             return;
         }
 
+        if (apps.Count > 0)
+        {
+            ResultHost.Children.Add(Header($"Apps ({apps.Count})"));
+            foreach (var app in apps) ResultHost.Children.Add(AppRow(app));
+        }
+
         if (notes.Count > 0)
         {
             ResultHost.Children.Add(Header($"Notes ({notes.Count})"));
-            foreach (var note in notes) ResultHost.Children.Add(NoteRow(note, query));
+            foreach (var note in notes)
+                ResultHost.Children.Add(NoteRow(note, query, pictureText.GetValueOrDefault(note.Id)));
         }
 
         if (captures.Count > 0)
@@ -168,7 +182,41 @@ public partial class SearchView : ShellTab
         }
     }
 
-    private Control NoteRow(NoteItem note, string query)
+    /// <summary>A tile of the dashboard; a click runs it, as the tile does.</summary>
+    private Control AppRow(ScriptItem app)
+    {
+        var panel = new StackPanel { Spacing = 1 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "▶ " + app.Name,
+            FontWeight = FontWeight.SemiBold,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"{app.ScriptPath} {app.Arguments}".Trim(),
+            FontSize = 12,
+            Opacity = 0.8,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+        var row = Row(panel, "Run this app");
+        ToolTip.SetTip(row, "Run it — the same as clicking its tile");
+        row.Click += (_, _) =>
+        {
+            try
+            {
+                LauncherService.Launch(app);
+                SummaryText.Text = $"Launched “{app.Name}”.";
+            }
+            catch (Exception ex)
+            {
+                SummaryText.Text = $"Failed to launch “{app.Name}”: {ex.Message}";
+            }
+        };
+        return row;
+    }
+
+    private Control NoteRow(NoteItem note, string query, string? pictureText = null)
     {
         var panel = new StackPanel { Spacing = 1 };
         panel.Children.Add(new TextBlock
@@ -179,7 +227,9 @@ public partial class SearchView : ShellTab
         });
         panel.Children.Add(new TextBlock
         {
-            Text = Snippet(NotesService.ToPlainText(note.Html), query),
+            Text = pictureText is null
+                ? Snippet(NotesService.ToPlainText(note.Html), query)
+                : "🖼 in a picture: " + Snippet(pictureText, query),
             FontSize = 12,
             Opacity = 0.8,
             TextTrimming = TextTrimming.CharacterEllipsis,
@@ -280,15 +330,5 @@ public partial class SearchView : ShellTab
     };
 
     /// <summary>The text around the first matching word, so you can see why a note matched.</summary>
-    private static string Snippet(string text, string query)
-    {
-        var first = query.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            .Select(t => text.IndexOf(t, StringComparison.OrdinalIgnoreCase))
-            .Where(i => i >= 0)
-            .DefaultIfEmpty(0)
-            .Min();
-        var start = Math.Max(0, first - 40);
-        var end = Math.Min(text.Length, first + 100);
-        return (start > 0 ? "…" : "") + text[start..end] + (end < text.Length ? "…" : "");
-    }
+    private static string Snippet(string text, string query) => SearchService.Snippet(text, query);
 }

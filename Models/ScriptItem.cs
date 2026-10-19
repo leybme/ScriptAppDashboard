@@ -26,6 +26,9 @@ public class AppConfig
     public List<ScriptItem> Scripts { get; set; } = new();
     public List<IntervalTimerItem> Timers { get; set; } = new();
 
+    /// <summary>"system" (follow the OS), "dark" or "light".</summary>
+    public string Theme { get; set; } = "system";
+
     /// <summary>Show the "Copy time" button (main window) and "Time" button (notes).</summary>
     public bool TimestampButtonEnabled { get; set; } = true;
 

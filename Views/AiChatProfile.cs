@@ -44,6 +44,9 @@ public sealed class AiChatProfile
     /// <summary>Other tabs: buttons under an answer (action, label); <see cref="OnAnswerAction"/> handles a press and returns a status message.</summary>
     public (string Action, string Label)[]? AnswerActions { get; init; }
 
+    /// <summary>Other tabs: buttons that depend on the answer (e.g. "Add as timer" only when it holds a timer); used instead of <see cref="AnswerActions"/> when set.</summary>
+    public Func<string, (string Action, string Label)[]>? AnswerActionsFor { get; init; }
+
     public Func<string, string, Task<string>>? OnAnswerAction { get; init; }
 
     /// <summary>The pointer went down in the panel, before it takes the focus (the notes tab captures its selection here).</summary>

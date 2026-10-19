@@ -31,10 +31,24 @@
     </Style>
   </UserControl.Styles>
   <ScrollViewer x:Name="Scroller" HorizontalScrollBarVisibility="Disabled">
-    <StackPanel Margin="2,4,16,4">
-      <StackPanel x:Name="BlockHost"/>
-      <!-- clicking below the last block continues the note there -->
-      <Border x:Name="Filler" MinHeight="160" Background="Transparent" Cursor="Ibeam"/>
-    </StackPanel>
+    <Grid>
+      <!-- long lines are hard to read: the note keeps a book-like width on wide windows -->
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" MaxWidth="920"/>
+      </Grid.ColumnDefinitions>
+      <StackPanel Margin="2,4,16,4">
+        <StackPanel x:Name="BlockHost"/>
+        <!-- clicking below the last block continues the note there -->
+        <Border x:Name="Filler" MinHeight="160" Background="Transparent" Cursor="Ibeam"/>
+        <!-- "/" on an empty line: pick the kind of block (the line keeps the focus) -->
+        <Popup x:Name="SlashPopup" Placement="BottomEdgeAlignedLeft" IsLightDismissEnabled="False">
+          <Border Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}" BorderBrush="#66808080"
+                  BorderThickness="1" CornerRadius="6" Padding="4" Width="280">
+            <ListBox x:Name="SlashList" Focusable="False" Background="Transparent" MaxHeight="330"
+                     AutomationProperties.Name="Block types"/>
+          </Border>
+        </Popup>
+      </StackPanel>
+    </Grid>
   </ScrollViewer>
 </UserControl>

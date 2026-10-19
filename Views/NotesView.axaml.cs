@@ -34,9 +34,35 @@ public partial class NotesView : ShellTab
         {
             if (e.Key != Key.Enter) return;
             e.Handled = true;
-            if (_codeView) HtmlBox.Focus();
-            else Editor.FocusStart();
+            FocusBody();
         };
+        // Down / Up walk title → tags → note body and back, like lines of one page
+        TitleBox.AddHandler(KeyDownEvent, (_, e) =>
+        {
+            if (e.Key != Key.Down || e.KeyModifiers != KeyModifiers.None) return;
+            e.Handled = true;
+            TagsBox.Focus();
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        TagsBox.AddHandler(KeyDownEvent, (_, e) =>
+        {
+            if (e.KeyModifiers != KeyModifiers.None) return;
+            if (e.Key is Key.Enter or Key.Down) FocusBody();
+            else if (e.Key == Key.Up) TitleBox.Focus();
+            else return;
+            e.Handled = true;
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        Editor.ExitTop += () =>
+        {
+            TagsBox.Focus();
+            TagsBox.CaretIndex = TagsBox.Text?.Length ?? 0;
+        };
+        Editor.CurrentChanged += UpdateFormatBar;
+        Editor.Changed += UpdateHistoryButtons;
+        Editor.Changed += CountWordsSoon;
+        HtmlBox.TextChanged += (_, _) => { UpdateHistoryButtons(); CountWordsSoon(); };
+        Editor.PictureRequested += () => Image_Click(null, new RoutedEventArgs());
+        _wordCount.Tick += (_, _) => { _wordCount.Stop(); UpdateWordCount(); };
+        UpdateFormatBar();
         _autoSave.Tick += (_, _) => { _autoSave.Stop(); if (_dirty) SaveCurrent(); };
         HtmlBox.AddHandler(KeyDownEvent, HtmlBox_KeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         ApplyTimeButton();
@@ -246,6 +272,69 @@ public partial class NotesView : ShellTab
     }
 
     // ---- formatting toolbar: acts on the visual editor, or wraps the HTML source in tags ----
+
+    private void FocusBody()
+    {
+        if (_codeView) HtmlBox.Focus();
+        else Editor.FocusStart();
+    }
+
+    /// <summary>Highlights the buttons of the block the caret is in; the heading icon shows its level.</summary>
+    private void UpdateFormatBar()
+    {
+        var current = _codeView ? null : Editor.CurrentBlock;
+        var kind = current?.Kind;
+        HeadingButton.Classes.Set("on", kind == BlockKind.Heading);
+        HeadingIcon.Kind = kind == BlockKind.Heading
+            ? current!.Value.Level switch
+            {
+                1 => Material.Icons.MaterialIconKind.FormatHeader1,
+                2 => Material.Icons.MaterialIconKind.FormatHeader2,
+                3 => Material.Icons.MaterialIconKind.FormatHeader3,
+                _ => Material.Icons.MaterialIconKind.FormatHeaderPound,
+            }
+            : Material.Icons.MaterialIconKind.FormatHeaderPound;
+        QuoteButton.Classes.Set("on", kind == BlockKind.Quote);
+        BulletsButton.Classes.Set("on", kind == BlockKind.Bullet);
+        NumbersButton.Classes.Set("on", kind == BlockKind.Number);
+        TimedButton.Classes.Set("on", kind == BlockKind.Timed);
+        CodeButton.Classes.Set("on", kind == BlockKind.Code);
+        UpdateHistoryButtons();
+    }
+
+    private void UpdateHistoryButtons()
+    {
+        UndoButton.IsEnabled = _codeView ? HtmlBox.CanUndo : Editor.CanUndo;
+        RedoButton.IsEnabled = _codeView ? HtmlBox.CanRedo : Editor.CanRedo;
+    }
+
+    private void Undo_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_codeView) HtmlBox.Undo();
+        else Editor.Undo();
+        UpdateHistoryButtons();
+    }
+
+    private void Redo_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_codeView) HtmlBox.Redo();
+        else Editor.Redo();
+        UpdateHistoryButtons();
+    }
+
+    private readonly Avalonia.Threading.DispatcherTimer _wordCount = new() { Interval = TimeSpan.FromMilliseconds(400) };
+
+    private void CountWordsSoon()
+    {
+        _wordCount.Stop();
+        _wordCount.Start();
+    }
+
+    private void UpdateWordCount()
+    {
+        var words = NotesService.ToPlainText(CurrentHtml()).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
+        WordCountText.Text = words switch { 0 => "", 1 => "1 word", _ => $"{words:N0} words" };
+    }
 
     private void Wrap(string open, string close, string placeholder)
     {
@@ -460,7 +549,7 @@ public partial class NotesView : ShellTab
                 panel.Children.Add(new TextBlock
                 {
                     Text = $"{note.Updated:yyyy-MM-dd HH:mm}   {note.Tags}".TrimEnd(),
-                    FontSize = 10,
+                    FontSize = 11,
                     Foreground = Brushes.Gray,
                     TextTrimming = TextTrimming.CharacterEllipsis,
                 });
@@ -510,6 +599,9 @@ public partial class NotesView : ShellTab
         _baseline = Snapshot();
         _dirty = false;
         StatusText.Text = note is null ? "New note" : $"Created {note.Created:yyyy-MM-dd HH:mm}";
+        _wordCount.Stop();
+        UpdateWordCount();
+        UpdateFormatBar();
     }
 
     private void Save_Click(object? sender, RoutedEventArgs e) => SaveCurrent();
@@ -869,8 +961,7 @@ public partial class NotesView : ShellTab
             HtmlBox.Text = html;
             return;
         }
-        Editor.Load(html);
-        UpdateDirty();
+        Editor.SetHtml(html); // one step that Ctrl+Z undoes
     }
 
     private AiChatOutcome Chat_ApplyEdits(string sentHtml, List<NoteDocument.NoteEdit> edits)
@@ -882,7 +973,7 @@ public partial class NotesView : ShellTab
         SetNoteHtml(NoteDocument.ToHtml(NoteDocument.ApplyEdits(units, edits)));
         var after = CurrentHtml();
         if (after == before) return new AiChatOutcome(false, "The AI's commands changed nothing in the note.");
-        return new AiChatOutcome(true, "✨ Applied — press Ctrl+S to keep it, or Undo in the chat.", before, after);
+        return new AiChatOutcome(true, "✨ Applied — Undo in the chat (or Ctrl+Z in the note) puts it back.", before, after);
     }
 
     private AiChatOutcome Chat_Undo(string before, string after)
@@ -1084,11 +1175,7 @@ public partial class NotesView : ShellTab
                 break;
             case "replace":
                 if (_codeView) HtmlBox.Text = NoteDocument.ToHtml(blocks);
-                else
-                {
-                    Editor.Load(NoteDocument.ToHtml(blocks));
-                    UpdateDirty();
-                }
+                else Editor.SetHtml(NoteDocument.ToHtml(blocks));
                 break;
             case "new":
                 var note = new NoteItem
@@ -1111,7 +1198,7 @@ public partial class NotesView : ShellTab
                 StatusText.Text = $"✨ Saved as the new note “{note.Title}”.";
                 return;
         }
-        StatusText.Text = "✨ AI text added — press Ctrl+S to keep it.";
+        StatusText.Text = _codeView ? "✨ AI text added." : "✨ AI text added — Ctrl+Z undoes it.";
     }
 
     private async System.Threading.Tasks.Task SuggestTitleAsync(string note)
@@ -1135,7 +1222,7 @@ public partial class NotesView : ShellTab
             TitleBox.Text = title;
             TagsBox.Text = App.MergeTags(TagsBox.Text ?? "", tags);
             UpdateDirty();
-            StatusText.Text = "✨ Title and tags suggested — press Ctrl+S to keep them.";
+            StatusText.Text = "✨ Title and tags suggested.";
         }
         finally
         {
@@ -1147,13 +1234,14 @@ public partial class NotesView : ShellTab
     {
         var wasDirty = _dirty;
         _suppress = true;
-        if (_codeView) Editor.Load(HtmlBox.Text ?? "");
+        if (_codeView) Editor.SetHtml(HtmlBox.Text ?? ""); // keeps the history: Ctrl+Z can undo the HTML edits
         else HtmlBox.Text = Editor.ToHtml();
         _suppress = false;
         _codeView = !_codeView;
         HtmlBox.IsVisible = _codeView;
         Editor.IsVisible = !_codeView;
         CodeToggleButton.Content = _codeView ? "Visual editor" : "Edit HTML";
+        UpdateFormatBar();
         // switching views can re-format the HTML; that alone is not an edit
         if (!wasDirty) _baseline = Snapshot();
         if (_codeView) HtmlBox.Focus();

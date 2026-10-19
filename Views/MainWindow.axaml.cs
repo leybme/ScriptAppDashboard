@@ -18,8 +18,8 @@ using ScriptAppDashboard.Services;
 namespace ScriptAppDashboard.Views;
 
 /// <summary>
-/// The one window of the app: a strip of tabs on the left (apps, notes, captures, timers, work log, search, settings),
-/// the tab in front in the middle, and the AI chat on the right. Closing it hides the app to the tray.
+/// The one window of the app: the AI chat on the left, a strip of tabs (apps, notes, captures, timers, work log, search,
+/// settings) next to it, and the tab content on the right (collapsed until a tab is clicked). Closing it hides the app to the tray.
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -53,8 +53,10 @@ public partial class MainWindow : Window
         AddTab("search", "Search", MaterialIconKind.Magnify, "Search notes and the work log together (Ctrl+F)", () => new SearchView());
         AddTab("settings", "Settings", MaterialIconKind.CogOutline, "Settings", () => new SettingsView());
 
-        _dock = new AiPanelDock(this, ChatPanel, startVisible: true);
-        _dock.Changed += ApplyChatButton;
+        ApplyColumns();
+        _dock = new AiPanelDock(ChatPanel, startVisible: true,
+            resize: (was, now) => ResizeFor(chatWas: was, chatNow: now, contentWas: _contentOpen, contentNow: _contentOpen));
+        _dock.Changed += () => { ApplyColumns(); ApplyCompact(); ApplyChatButton(); };
         ApplyChatButton();
         ApplyAskAiTip();
         AppRef.SettingsChanged += ApplyAskAiTip;
@@ -63,7 +65,7 @@ public partial class MainWindow : Window
         _todayTimer.Start();
         Opened += (_, _) => UpdateToday();
         Activated += (_, _) => UpdateToday();
-        ShowTab("apps");
+        ShowTab("apps", open: false); // the window starts compact: tab list and chat; a click on a tab opens its content
     }
 
     // ---- tabs -------------------------------------------------------------------------------
@@ -87,15 +89,21 @@ public partial class MainWindow : Window
         };
         AutomationProperties.SetName(button, title);
         ToolTip.SetTip(button, tip);
-        button.Click += (_, _) => ShowTab(id);
+        button.Click += (_, _) => TabClicked(id);
         TabStrip.Children.Add(button);
         _tabs.Add(new TabInfo { Id = id, Title = title, Create = create, Button = button });
     }
 
-    /// <summary>Brings a tab to the front (creating it the first time) and points the AI chat at it.</summary>
-    public ShellTab ShowTab(string id)
+    /// <summary>A click on a tab button: opens the tab's content; a click on the tab that is open collapses the content again.</summary>
+    private void TabClicked(string id)
     {
-        var tab = _tabs.First(t => t.Id == id);
+        if (_contentOpen && _current?.Id == id) ShowContent(false);
+        else ShowTab(id);
+    }
+
+    /// <summary>Creates the view of a tab the first time it is needed.</summary>
+    private ShellTab EnsureView(TabInfo tab)
+    {
         if (tab.View is null)
         {
             tab.View = tab.Create();
@@ -103,37 +111,150 @@ public partial class MainWindow : Window
             tab.View.IsVisible = false;
             TabHost.Children.Add(tab.View);
         }
+        return tab.View;
+    }
+
+    /// <summary>
+    /// Makes a tab the one the chat is about and, unless <paramref name="open"/> is false, opens its content (the window widens
+    /// when the content was collapsed).
+    /// </summary>
+    public ShellTab ShowTab(string id, bool open = true)
+    {
+        var tab = _tabs.First(t => t.Id == id);
+        var view = EnsureView(tab);
         if (_current is not null && !ReferenceEquals(_current, tab))
         {
             _current.View!.OnHidden();
             _current.View.IsVisible = false;
         }
         _current = tab;
-        foreach (var t in _tabs) t.Button.IsChecked = ReferenceEquals(t, tab);
-        tab.View.IsVisible = true;
-        ChatPanel.Use(tab.View.ChatProfile ?? new AiChatProfile());
-        tab.View.OnShown();
-        return tab.View;
+        view.IsVisible = true;
+        ChatPanel.Use(view.ChatProfile ?? new AiChatProfile());
+        var wasOpen = _contentOpen;
+        if (open) ShowContent(true);
+        if (open && wasOpen) view.OnShown(); // opening the content already refreshed the tab
+        UpdateTabButtons();
+        return view;
+    }
+
+    private bool _contentOpen;
+
+    /// <summary>The width of the tab list: a 6 px margin, an 80 px button, a 6 px margin.</summary>
+    private const double StripWidth = 92;
+
+    /// <summary>The room the tab content needs next to the tab list and the chat.</summary>
+    private const double ContentRoom = 800;
+
+    public bool IsContentOpen => _contentOpen;
+
+    /// <summary>The window width for a state: the tab list, plus the chat with its margins, plus the content.</summary>
+    private double WidthFor(bool chat, bool content) => StripWidth + (chat ? _dock.Room : 0) + (content ? ContentRoom : 0);
+
+    /// <summary>
+    /// Sets the window width for a change of state. It is computed from the state, not added up: Windows keeps a window from
+    /// getting narrower than about 120 px, so shrinking by exact amounts would leave a little more width every time. What
+    /// the user added by dragging the window's edge is kept (there is none while only the tab list is showing).
+    /// </summary>
+    private void ResizeFor(bool chatWas, bool chatNow, bool contentWas, bool contentNow)
+    {
+        if (WindowState != WindowState.Normal) return;
+        var extra = chatWas || contentWas ? Math.Max(0, Width - WidthFor(chatWas, contentWas)) : 0;
+        Width = Math.Min(WidthFor(chatNow, contentNow) + extra, AiPanelDock.AvailableWidth(this) ?? double.MaxValue);
+    }
+
+    /// <summary>Opens or collapses the tab content; the window widens (as far as the screen allows) or narrows by its room.</summary>
+    public void ShowContent(bool open)
+    {
+        if (_contentOpen == open) return;
+        ResizeFor(chatWas: _dock.IsVisible, chatNow: _dock.IsVisible, contentWas: _contentOpen, contentNow: open);
+        _contentOpen = open;
+        TabHost.IsVisible = open;
+        ApplyColumns();
+        ApplyCompact();
+        if (open) _current?.View?.OnShown();
+        else _current?.View?.OnHidden();
+        UpdateTabButtons();
+    }
+    /// <summary>
+    /// Chat on the left, tab list, content on the right. While the content is collapsed the chat takes the width (or, with the
+    /// chat hidden too, nothing does and the tab list sits alone at the left); while it is open the chat has a fixed width and
+    /// the content takes the rest.
+    /// </summary>
+    private void ApplyColumns()
+    {
+        Root.ColumnDefinitions[0].Width = !_contentOpen && ChatPanel.IsVisible ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+        Root.ColumnDefinitions[2].Width = _contentOpen ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        ChatPanel.Width = _contentOpen ? AiPanelDock.PanelWidth : double.NaN;
+    }
+    private bool _compact;
+    private double _normalHeight;
+
+    /// <summary>
+    /// With the chat and the content both closed only the tab list is left. In 92 px a title bar doesn't fit (Windows drops
+    /// buttons and keeps the window wider than the list), and the full height leaves a big empty gap. So the window becomes
+    /// a small floating dock: no title bar (<see cref="Grip"/> moves it), exactly as big as its buttons. Opening a tab or the
+    /// chat brings the normal window back at its old height.
+    /// </summary>
+    private void ApplyCompact()
+    {
+        var compact = !_contentOpen && !_dock.IsVisible;
+        if (compact == _compact) return;
+        _compact = compact;
+        Grip.IsVisible = compact;
+        if (compact)
+        {
+            if (WindowState != WindowState.Normal) WindowState = WindowState.Normal;
+            _normalHeight = Height;
+            MinHeight = 0;
+            CanResize = false;
+            SystemDecorations = SystemDecorations.BorderOnly;
+        }
+        else
+        {
+            SystemDecorations = SystemDecorations.Full;
+            CanResize = true;
+            MinHeight = 460;
+        }
+        // changing the frame makes Windows resize the window (seen as a user resize, which also turns SizeToContent off):
+        // set the size once that is done
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_compact != compact) return;
+            if (compact)
+            {
+                Strip.Measure(new Size(StripWidth, double.PositiveInfinity));
+                Width = StripWidth;
+                Height = Math.Ceiling(Strip.DesiredSize.Height);
+            }
+            else
+            {
+                Height = Math.Max(MinHeight, _normalHeight);
+                Width = Math.Min(WidthFor(_dock.IsVisible, _contentOpen), AiPanelDock.AvailableWidth(this) ?? double.MaxValue);
+            }
+        }, DispatcherPriority.Background);
+    }
+
+    private void Grip_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) BeginMoveDrag(e);
+    }
+
+    /// <summary>The tab whose content is open looks pressed; with the content collapsed no tab does (the chat still follows the last one).</summary>
+    private void UpdateTabButtons()
+    {
+        foreach (var t in _tabs) t.Button.IsChecked = _contentOpen && ReferenceEquals(t, _current);
     }
 
     /// <summary>The tab with this id, created if it was never opened (without bringing it to the front).</summary>
-    public T Tab<T>(string id) where T : ShellTab
-    {
-        var tab = _tabs.First(t => t.Id == id);
-        if (tab.View is null)
-        {
-            var front = _current;
-            ShowTab(id);
-            if (front is not null) ShowTab(front.Id);
-        }
-        return (T)tab.View!;
-    }
-
+    public T Tab<T>(string id) where T : ShellTab => (T)EnsureView(_tabs.First(t => t.Id == id));
     /// <summary>The tab with this id if it was ever opened, else null.</summary>
     public T? ExistingTab<T>(string id) where T : ShellTab => _tabs.First(t => t.Id == id).View as T;
 
     /// <summary>The window was shown again: the tab in front refreshes.</summary>
-    public void Revealed() => _current?.View?.OnShown();
+    public void Revealed()
+    {
+        if (_contentOpen) _current?.View?.OnShown();
+    }
 
     /// <summary>Saves what the tabs hold unsaved (a note being edited); used before the window hides and when the app quits.</summary>
     public void FlushTabs()

@@ -4,6 +4,11 @@
              x:Class="ScriptAppDashboard.App"
              Name="Toolshed360"
              RequestedThemeVariant="Default">
+  <!-- the type scale: 11 caption, 12 secondary, 13 body (below), 15 section / tab headers (below), 20 page title; a note's own text is 14 -->
+  <Application.Resources>
+    <x:Double x:Key="ControlContentThemeFontSize">13</x:Double>
+    <x:Double x:Key="TabItemHeaderFontSize">15</x:Double>
+  </Application.Resources>
   <Application.Styles>
     <FluentTheme />
     <materialIcons:MaterialIconStyles />

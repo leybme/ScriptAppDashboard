@@ -56,7 +56,7 @@ public class ToastWindow : Window
         {
             Text = title,
             FontWeight = FontWeight.SemiBold,
-            FontSize = 14,
+            FontSize = 13,
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
         });

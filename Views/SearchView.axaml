@@ -5,17 +5,19 @@
   <DockPanel Margin="16">
     <DockPanel DockPanel.Dock="Top">
       <ComboBox x:Name="RangeCombo" DockPanel.Dock="Right" SelectedIndex="1" MinWidth="140" Margin="8,0,0,0"
+                AutomationProperties.Name="Date range of the work log"
                 SelectionChanged="Range_Changed">
         <ComboBoxItem Content="Last 7 days"/>
         <ComboBoxItem Content="Last 30 days"/>
         <ComboBoxItem Content="Last 90 days"/>
         <ComboBoxItem Content="Last year"/>
       </ComboBox>
-      <TextBox x:Name="QueryBox" Watermark="Search notes, captures, window titles / tabs, launched scripts, timer output…"/>
+      <TextBox x:Name="QueryBox" Watermark="Search apps, notes, pictures, captures, window titles / tabs, timer output…"
+               AutomationProperties.Name="Search"/>
     </DockPanel>
     <TextBlock x:Name="SummaryText" DockPanel.Dock="Top" Margin="2,8,0,4" FontSize="12" Foreground="Gray"
                TextWrapping="Wrap"
-               Text="Type a word or two — every word must match. Notes are searched in full; the date range applies to the work log."/>
+               Text="Type a word or two — every word must match. Apps (your tiles), notes (including the words in their pictures) and captures are searched in full; the date range applies to the work log."/>
     <ScrollViewer>
       <StackPanel x:Name="ResultHost" Spacing="2"/>
     </ScrollViewer>

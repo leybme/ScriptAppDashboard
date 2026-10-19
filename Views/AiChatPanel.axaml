@@ -3,12 +3,10 @@
              x:Class="ScriptAppDashboard.Views.AiChatPanel">
   <DockPanel>
     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-      <Button DockPanel.Dock="Right" Content="✕" Padding="8,2" AutomationProperties.Name="Close AI chat"
-              ToolTip.Tip="Hide the chat (the conversation is kept until the window closes)" Click="Close_Click"/>
-      <Button DockPanel.Dock="Right" Content="New chat" Margin="0,0,6,0" AutomationProperties.Name="New AI chat"
+      <Button DockPanel.Dock="Right" Content="New chat" AutomationProperties.Name="New AI chat"
               ToolTip.Tip="Forget this conversation and start again" Click="NewChat_Click"/>
       <StackPanel VerticalAlignment="Center">
-        <TextBlock Text="✨ AI chat" FontSize="16" FontWeight="SemiBold"/>
+        <TextBlock Text="✨ AI chat" FontSize="15" FontWeight="SemiBold"/>
         <TextBlock x:Name="ContextLabel" FontSize="11" Foreground="Gray" IsVisible="False"
                    TextTrimming="CharacterEllipsis"/>
       </StackPanel>

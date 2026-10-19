@@ -37,7 +37,7 @@ public static class MarkdownPreview
         };
     }
 
-    private static TextBlock Text(string markup, double size = 14, FontWeight weight = FontWeight.Normal)
+    private static TextBlock Text(string markup, double size = 13, FontWeight weight = FontWeight.Normal)
     {
         var view = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = size, FontWeight = weight };
         NoteEditor.RenderInlines(view, markup);
@@ -49,7 +49,7 @@ public static class MarkdownPreview
         switch (block.Kind)
         {
             case BlockKind.Heading:
-                return Text(block.Text, block.Level <= 1 ? 20 : block.Level == 2 ? 17 : 15, FontWeight.SemiBold);
+                return Text(block.Text, block.Level <= 1 ? 17 : block.Level == 2 ? 15 : 14, FontWeight.SemiBold);
             case BlockKind.Bullet or BlockKind.Number or BlockKind.Timed:
                 var marker = new TextBlock
                 {
@@ -76,7 +76,7 @@ public static class MarkdownPreview
                     Background = NoteEditor.CodeBack,
                     Padding = new Thickness(8, 6),
                     CornerRadius = new CornerRadius(4),
-                    Child = new TextBlock { Text = block.Text, FontFamily = Mono, FontSize = 13, TextWrapping = TextWrapping.Wrap },
+                    Child = new TextBlock { Text = block.Text, FontFamily = Mono, FontSize = 12, TextWrapping = TextWrapping.Wrap },
                 };
             case BlockKind.Divider:
                 return new Border { Height = 1, Background = NoteEditor.Line, Margin = new Thickness(0, 6) };
@@ -106,7 +106,7 @@ public static class MarkdownPreview
                     BorderThickness = new Thickness(0, 0, 1, 1),
                     Padding = new Thickness(8, 4),
                     Background = header ? NoteEditor.CodeBack : Brushes.Transparent,
-                    Child = Text(rows[r][c], 14, header ? FontWeight.SemiBold : FontWeight.Normal),
+                    Child = Text(rows[r][c], 13, header ? FontWeight.SemiBold : FontWeight.Normal),
                 };
                 Grid.SetRow(cell, r);
                 Grid.SetColumn(cell, c);

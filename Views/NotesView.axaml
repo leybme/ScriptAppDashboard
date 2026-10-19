@@ -1,6 +1,7 @@
 <views:ShellTab xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="using:ScriptAppDashboard.Views"
+        xmlns:mi="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
         x:Class="ScriptAppDashboard.Views.NotesView">
   <views:ShellTab.Styles>
     <!-- title and tags sit on the page like a document heading -->
@@ -23,8 +24,27 @@
     </Style>
     <!-- toolbar buttons don't take focus, so the caret and selection stay in the note -->
     <Style Selector="WrapPanel#FormatBar > Button">
-      <Setter Property="Margin" Value="0,0,4,4"/>
+      <Setter Property="Margin" Value="0,0,2,4"/>
+      <Setter Property="Padding" Value="7,5"/>
+      <Setter Property="MinWidth" Value="34"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
       <Setter Property="Focusable" Value="False"/>
+    </Style>
+    <Style Selector="WrapPanel#FormatBar mi|MaterialIcon">
+      <Setter Property="Width" Value="18"/>
+      <Setter Property="Height" Value="18"/>
+    </Style>
+    <!-- the kind of the block the caret is in -->
+    <Style Selector="WrapPanel#FormatBar > Button.on">
+      <Setter Property="BorderBrush" Value="{DynamicResource SystemControlHighlightAccentBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource SystemControlHighlightAccentBrush}"/>
+    </Style>
+    <Style Selector="WrapPanel#FormatBar > Border.sep">
+      <Setter Property="Width" Value="1"/>
+      <Setter Property="Height" Value="20"/>
+      <Setter Property="Background" Value="#44888888"/>
+      <Setter Property="Margin" Value="5,0,7,4"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
   </views:ShellTab.Styles>
   <Grid ColumnDefinitions="260,*" Margin="16">
@@ -33,7 +53,7 @@
               HorizontalContentAlignment="Center" Click="New_Click"/>
       <TextBox x:Name="SearchBox" DockPanel.Dock="Top" Margin="0,8" Watermark="Search title, tags, text…"/>
       <TextBlock DockPanel.Dock="Bottom" Margin="0,2,0,0" FontSize="11" Foreground="Gray" TextWrapping="Wrap"
-                 Text="Ctrl+S save · Ctrl+N new · Ctrl+F search · Ctrl+B / I / K bold, italic, link"/>
+                 Text="Saved automatically · Ctrl+N new · Ctrl+F search · Ctrl+Z undo · type / on an empty line for headings, lists, tables…"/>
       <TextBlock x:Name="CountText" DockPanel.Dock="Bottom" Margin="0,6,0,0" FontSize="12" Foreground="Gray"/>
       <Panel>
         <ListBox x:Name="NoteList" SelectionChanged="NoteList_Changed"/>
@@ -44,34 +64,74 @@
 
     <DockPanel Grid.Column="1">
       <WrapPanel x:Name="FormatBar" DockPanel.Dock="Top">
-        <Button Content="B" FontWeight="Bold" MinWidth="32" AutomationProperties.Name="Bold"
-                ToolTip.Tip="Bold (Ctrl+B)" Click="Bold_Click"/>
-        <Button Content="I" FontStyle="Italic" MinWidth="32" AutomationProperties.Name="Italic"
-                ToolTip.Tip="Italic (Ctrl+I)" Click="Italic_Click"/>
-        <Button Content="&lt;/&gt;" AutomationProperties.Name="Code"
-                ToolTip.Tip="Code — selected text becomes inline code, otherwise the line becomes a code block (or type ```)" Click="Code_Click"/>
-        <Button Content="Link" ToolTip.Tip="Link (Ctrl+K) — Ctrl+click a link to open it" Click="Link_Click"/>
-        <Button Content="H" FontWeight="Bold" MinWidth="32" AutomationProperties.Name="Heading"
-                ToolTip.Tip="Heading — click again for a smaller one (or type #, ## or ### and a space)" Click="Heading_Click"/>
-        <Button Content="❝" MinWidth="32" AutomationProperties.Name="Quote"
-                ToolTip.Tip="Quote (or type &gt; and a space)" Click="Quote_Click"/>
-        <Button Content="• Bullets" ToolTip.Tip="Bulleted list (or type - and a space) — Tab indents, Enter on an empty item ends the list" Click="Bullets_Click"/>
-        <Button Content="1. Numbers" ToolTip.Tip="Numbered list (or type 1. and a space)" Click="Numbers_Click"/>
-        <Button Content="◷ Timed" ToolTip.Tip="Time bullets — every new item (Enter) is stamped with the current date and time" Click="Timed_Click"/>
-        <Button x:Name="TimeButton" Content="🕒 Time" ToolTip.Tip="Insert the current time (format in Settings)"
-                Click="Time_Click"/>
-        <Button Content="🖼 Image" AutomationProperties.Name="Insert picture"
+        <Button x:Name="UndoButton" AutomationProperties.Name="Undo" ToolTip.Tip="Undo (Ctrl+Z)" Click="Undo_Click">
+          <mi:MaterialIcon Kind="Undo"/>
+        </Button>
+        <Button x:Name="RedoButton" AutomationProperties.Name="Redo" ToolTip.Tip="Redo (Ctrl+Y)" Click="Redo_Click">
+          <mi:MaterialIcon Kind="Redo"/>
+        </Button>
+        <Border Classes="sep"/>
+        <Button AutomationProperties.Name="Bold" ToolTip.Tip="Bold (Ctrl+B)" Click="Bold_Click">
+          <mi:MaterialIcon Kind="FormatBold"/>
+        </Button>
+        <Button AutomationProperties.Name="Italic" ToolTip.Tip="Italic (Ctrl+I)" Click="Italic_Click">
+          <mi:MaterialIcon Kind="FormatItalic"/>
+        </Button>
+        <Button x:Name="CodeButton" AutomationProperties.Name="Code" Click="Code_Click"
+                ToolTip.Tip="Code — selected text becomes inline code, otherwise the line becomes a code block (or type ```)">
+          <mi:MaterialIcon Kind="CodeTags"/>
+        </Button>
+        <Button AutomationProperties.Name="Link" ToolTip.Tip="Link (Ctrl+K) — Ctrl+click a link to open it" Click="Link_Click">
+          <mi:MaterialIcon Kind="LinkVariant"/>
+        </Button>
+        <Border Classes="sep"/>
+        <Button x:Name="HeadingButton" AutomationProperties.Name="Heading" Click="Heading_Click"
+                ToolTip.Tip="Heading — click again for a smaller one (or type #, ## or ### and a space)">
+          <mi:MaterialIcon x:Name="HeadingIcon" Kind="FormatHeaderPound"/>
+        </Button>
+        <Button x:Name="QuoteButton" AutomationProperties.Name="Quote" ToolTip.Tip="Quote (or type &gt; and a space)" Click="Quote_Click">
+          <mi:MaterialIcon Kind="FormatQuoteOpen"/>
+        </Button>
+        <Button x:Name="BulletsButton" AutomationProperties.Name="Bullets" Click="Bullets_Click"
+                ToolTip.Tip="Bulleted list (or type - and a space) — Tab indents, Enter on an empty item ends the list">
+          <mi:MaterialIcon Kind="FormatListBulleted"/>
+        </Button>
+        <Button x:Name="NumbersButton" AutomationProperties.Name="Numbers" ToolTip.Tip="Numbered list (or type 1. and a space)" Click="Numbers_Click">
+          <mi:MaterialIcon Kind="FormatListNumbered"/>
+        </Button>
+        <Button x:Name="TimedButton" AutomationProperties.Name="Time bullets" Click="Timed_Click"
+                ToolTip.Tip="Time bullets — every new item (Enter) is stamped with the current date and time">
+          <mi:MaterialIcon Kind="TimelineClockOutline"/>
+        </Button>
+        <Border Classes="sep"/>
+        <Button x:Name="TimeButton" AutomationProperties.Name="Insert time" ToolTip.Tip="Insert the current time (format in Settings)"
+                Click="Time_Click">
+          <mi:MaterialIcon Kind="ClockOutline"/>
+        </Button>
+        <Button AutomationProperties.Name="Insert picture"
                 ToolTip.Tip="Insert pictures — or paste a screenshot (Ctrl+V), or drop picture files onto the note"
-                Click="Image_Click"/>
-        <Button Content="▦ Table" AutomationProperties.Name="Insert table"
+                Click="Image_Click">
+          <mi:MaterialIcon Kind="ImageOutline"/>
+        </Button>
+        <Button AutomationProperties.Name="Insert table"
                 ToolTip.Tip="Insert a table — Tab moves between cells, right-click adds or removes rows and columns. Pasting cells from Excel makes a table too."
-                Click="Table_Click"/>
-        <Button Content="📊 Chart" AutomationProperties.Name="Insert chart"
+                Click="Table_Click">
+          <mi:MaterialIcon Kind="TableLarge"/>
+        </Button>
+        <Button AutomationProperties.Name="Insert chart"
                 ToolTip.Tip="Insert a bar, line or pie chart drawn from a small data table (or right-click a table → Make a chart)"
-                Click="Chart_Click"/>
-        <Button x:Name="AiButton" Content="✨ AI ▾" AutomationProperties.Name="AI"
+                Click="Chart_Click">
+          <mi:MaterialIcon Kind="ChartBar"/>
+        </Button>
+        <Border Classes="sep"/>
+        <Button x:Name="AiButton" AutomationProperties.Name="AI"
                 ToolTip.Tip="AI: ask for any change in your own words (e.g. make a chart from the numbers), rewrite, shorten, fix or translate the selected text (or the whole note), continue writing, summarise, extract to-dos, make meeting minutes, suggest a title and tags"
                 Click="Ai_Click">
+          <StackPanel Orientation="Horizontal" Spacing="4">
+            <mi:MaterialIcon Kind="CreationOutline"/>
+            <TextBlock Text="AI" VerticalAlignment="Center"/>
+            <mi:MaterialIcon Kind="MenuDown" Width="14" Height="14"/>
+          </StackPanel>
           <FlyoutBase.AttachedFlyout>
             <MenuFlyout Placement="BottomEdgeAlignedLeft">
               <MenuItem x:Name="AiScopeItem" Header="On the selected text" IsEnabled="False"/>
@@ -99,9 +159,11 @@
             </MenuFlyout>
           </FlyoutBase.AttachedFlyout>
         </Button>
-        <Button x:Name="ChatButton" Content="💬 Chat" AutomationProperties.Name="AI chat"
+        <Button x:Name="ChatButton" AutomationProperties.Name="AI chat"
                 ToolTip.Tip="Chat with the AI beside the note (Ctrl+J): ask questions about it, or ask for changes — you see them first and press Apply"
-                Click="Chat_Click"/>
+                Click="Chat_Click">
+          <mi:MaterialIcon Kind="MessageOutline"/>
+        </Button>
       </WrapPanel>
       <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
@@ -121,10 +183,13 @@
           <Button Content="Delete" Click="Delete_Click"/>
           <Button Content="Save" Classes="accent" Click="Save_Click"/>
         </StackPanel>
-        <TextBlock x:Name="StatusText" VerticalAlignment="Center" FontSize="12" Foreground="Gray"/>
+        <TextBlock x:Name="WordCountText" DockPanel.Dock="Right" Margin="0,0,16,0" VerticalAlignment="Center"
+                   FontSize="12" Foreground="Gray"/>
+        <TextBlock x:Name="StatusText" VerticalAlignment="Center" FontSize="12" Foreground="Gray"
+                   TextTrimming="CharacterEllipsis"/>
       </DockPanel>
       <TextBox x:Name="TitleBox" DockPanel.Dock="Top" Classes="doc" Margin="0,6,0,0" Watermark="Title"
-               FontSize="24" FontWeight="SemiBold"/>
+               FontSize="20" FontWeight="SemiBold"/>
       <TextBox x:Name="TagsBox" DockPanel.Dock="Top" Classes="doc" Foreground="Gray"
                Watermark="#tags (space or comma separated)"/>
       <Border DockPanel.Dock="Top" Height="1" Background="#44888888" Margin="0,6"/>

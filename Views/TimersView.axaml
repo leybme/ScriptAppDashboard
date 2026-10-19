@@ -32,13 +32,6 @@
 
     <ScrollViewer Grid.Column="1">
       <StackPanel Spacing="8">
-        <DockPanel>
-          <Button x:Name="DescribeButton" DockPanel.Dock="Right" Content="✨ Create with AI" Margin="8,0,0,0"
-                  Click="Describe_Click" AutomationProperties.Name="Create with AI"
-                  ToolTip.Tip="The AI fills in the timer below from your description; check it and press Save"/>
-          <TextBox x:Name="DescribeBox" AutomationProperties.Name="Describe a timer"
-                   Watermark="Describe a timer, e.g. “every 2 hours ask AI what I've been doing and what to do next”"/>
-        </DockPanel>
         <ComboBox x:Name="TemplateCombo" SelectedIndex="0" HorizontalAlignment="Stretch"
                   SelectionChanged="Template_Changed">
           <ComboBoxItem Content="Start from a template…"/>

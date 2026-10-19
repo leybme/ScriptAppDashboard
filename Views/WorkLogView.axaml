@@ -13,10 +13,6 @@
       <CheckBox x:Name="WorkHoursCheck" Content="Working hours only" Margin="0,0,12,0" VerticalAlignment="Center"/>
       <Button Content="Refresh" Margin="0,0,8,0" Click="Refresh_Click"/>
       <Button Content="Copy summary (Markdown)" Margin="0,0,8,0" Click="Copy_Click"/>
-      <Button Content="✨ AI report" Margin="0,0,8,0" Click="AiReport_Click" AutomationProperties.Name="AI report"
-              ToolTip.Tip="Ask the AI for a standup-style report of this period: what you worked on, where focus went, what's next"/>
-      <Button Content="✨ AI timesheet" Margin="0,0,8,0" Click="AiTimesheet_Click" AutomationProperties.Name="AI timesheet"
-              ToolTip.Tip="Ask the AI to group this period into projects / tasks with hours, as a table"/>
       <Button Content="Open log folder" Margin="0,0,8,0" Click="OpenFolder_Click"/>
       <CheckBox x:Name="EnabledCheck" Content="Record work log" VerticalAlignment="Center"/>
     </WrapPanel>

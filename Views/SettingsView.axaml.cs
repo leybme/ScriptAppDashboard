@@ -23,6 +23,7 @@ public partial class SettingsView : ShellTab
         InitializeComponent();
         var config = AppRef.Config;
 
+        ThemeCombo.SelectedIndex = Math.Max(0, Array.IndexOf(ThemeIds, config.Theme));
         ConfigPathBox.Text = ConfigService.ConfigDir;
         TsEnabledCheck.IsChecked = config.TimestampButtonEnabled;
         FormatBox.Text = string.IsNullOrEmpty(config.TimestampFormat) ? TimestampService.DefaultFormat : config.TimestampFormat;
@@ -68,6 +69,18 @@ public partial class SettingsView : ShellTab
             GetContext = () => new AiChatContext(SettingsText(), "the settings page", null, null, AiPrompts.AppGuide),
         };
         _chatProfile.SetLabel("Settings");
+    }
+
+    private static readonly string[] ThemeIds = { "system", "dark", "light" };
+
+    /// <summary>The theme changes at once and is saved at once (it is not part of the Save button).</summary>
+    private void Theme_Changed(object? sender, SelectionChangedEventArgs e)
+    {
+        // SelectionChanged fires while the XAML is still loading, before the rest of the page exists
+        if (_loading || ThemeCombo is null) return;
+        AppRef.Config.Theme = ThemeIds[Math.Clamp(ThemeCombo.SelectedIndex, 0, ThemeIds.Length - 1)];
+        AppRef.ApplyTheme();
+        try { AppRef.SaveConfig(); } catch { /* the theme still applies; the next Save keeps it */ }
     }
 
     private readonly AiChatProfile _chatProfile;

@@ -27,12 +27,14 @@ public partial class App : Application
     {
         Config = ConfigService.Load();
         StartupService.MigrateLegacy();
+        ApplyTheme();
         AiService.Start(Config);
         WorkLogService.Start(Config);
         TimerService.Start(Config);
         TimerService.Ran += (timer, output) =>
             Avalonia.Threading.Dispatcher.UIThread.Post(() => NotifyTimer(timer, output));
         SettingsChanged += RefreshTrayMenu;
+        SettingsChanged += ApplyTheme;
         TimerService.PauseChanged += () => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             // persist the pause so it survives a restart; SaveConfig also rebuilds the tray menu
@@ -60,6 +62,15 @@ public partial class App : Application
 
         base.OnFrameworkInitializationCompleted();
     }
+
+    /// <summary>Applies the theme from Settings: follow the system, or dark / light.</summary>
+    public void ApplyTheme()
+        => RequestedThemeVariant = Config.Theme switch
+        {
+            "dark" => Avalonia.Styling.ThemeVariant.Dark,
+            "light" => Avalonia.Styling.ThemeVariant.Light,
+            _ => Avalonia.Styling.ThemeVariant.Default,
+        };
 
     public void SaveConfig()
     {

@@ -33,7 +33,7 @@ public sealed record AiChatOutcome(bool Ok, string Message, string? Before = nul
 /// </summary>
 public partial class AiChatPanel : UserControl
 {
-    private enum State { Pending, Answered, Edit, Failed, Stopped }
+    private enum State { Pending, Answered, Edit, Failed, Stopped, Search }
 
     private sealed class Turn
     {
@@ -52,10 +52,15 @@ public partial class AiChatPanel : UserControl
         // while waiting: when it started, the answer so far, and the two text blocks that show them
         public DateTime Started = DateTime.Now;
         public string Partial = "";
-        public TextBlock? StatusBlock, PartialBlock;
+        public TextBlock? StatusBlock;
+        public Border? PartialHost;
+        public string Rendered = "";
+        public DateTime LastRender = DateTime.MinValue;
         // a ready-made request from the AI menu: its own buttons, and what each one does with the answer
         public (string Action, string Label)[]? Buttons;
         public Func<string, string, Task<string>>? OnChoice;
+        // an "@" quick search: what it found (null while it runs)
+        public SearchResults? Search;
     }
 
     private readonly Dictionary<Guid, List<Turn>> _chats = new();
@@ -87,7 +92,8 @@ public partial class AiChatPanel : UserControl
         SetContextLabel(profile.ContextLabel);
         QuickActions.Children.Clear();
         foreach (var (label, tip, click) in profile.Quick) QuickActions.Children.Add(SmallButton(label, tip, click));
-        QuickActions.IsVisible = profile.Quick.Length > 0;
+        QuickActions.Children.Add(SmallButton("@ Search", "Quick search of your apps, notes, pictures and captures: type @ and a word, then Enter", () => Prefill("@")));
+        QuickActions.IsVisible = true;
         UpdateBusy();
         Render();
     }
@@ -121,8 +127,6 @@ public partial class AiChatPanel : UserControl
         InputBox.Text = message;
         return SendAsync();
     }
-
-    public event Action? CloseRequested;
 
     public AiChatPanel()
     {
@@ -168,14 +172,20 @@ public partial class AiChatPanel : UserControl
         var seconds = (int)(DateTime.Now - turn.Started).TotalSeconds;
         if (turn.StatusBlock is { } status)
             status.Text = turn.Partial.Length == 0 ? $"{AiService.Asking()} {seconds} s" : $"✍️ Writing… {seconds} s";
-        if (turn.PartialBlock is { } block && block.Text != turn.Partial)
+        // the answer so far, formatted like the finished one (Markdown), at most every 120 ms; edit commands of a note change stay plain
+        if (turn.PartialHost is { } host && turn.Rendered != turn.Partial && (DateTime.Now - turn.LastRender).TotalMilliseconds >= 120)
         {
-            block.Text = turn.Partial;
-            block.IsVisible = turn.Partial.Length > 0;
-            Scroll.ScrollToEnd();
+            var atBottom = Scroll.Extent.Height - (Scroll.Offset.Y + Scroll.Viewport.Height) < 40;
+            turn.Rendered = turn.Partial;
+            turn.LastRender = DateTime.Now;
+            host.Child = turn.Partial.Contains("@@")
+                ? new TextBlock { Text = turn.Partial, TextWrapping = TextWrapping.Wrap }
+                : MarkdownPreview.BuildInline(turn.Partial);
+            host.IsVisible = turn.Partial.Length > 0;
+            // follow the new text only while the reader is at the bottom; someone who scrolled up to read is left alone
+            if (atBottom) Dispatcher.UIThread.Post(() => Scroll.ScrollToEnd(), DispatcherPriority.Background);
         }
     }
-
     private void OnPartial(Turn turn, string text)
     {
         turn.Partial = text; // read on the UI thread by the heartbeat and by ShowProgress below
@@ -234,12 +244,20 @@ public partial class AiChatPanel : UserControl
 
     private async Task SendAsync()
     {
+        var typed = (InputBox.Text ?? "").Trim();
+        if (typed.StartsWith('@'))
+        {
+            // "@word": a quick search of the apps, notes, pictures and captures, no AI involved (works while an answer is pending)
+            InputBox.Text = "";
+            await QuickSearchAsync(typed[1..].Trim());
+            return;
+        }
         if (Running is not null)
         {
             Stop();
             return;
         }
-        var message = (InputBox.Text ?? "").Trim();
+        var message = typed;
         if (message.Length == 0 || _profile.GetContext?.Invoke() is not { } ctx) return;
 
         var list = Turns; // the conversation this question belongs to, even if another tab is shown while it is searched
@@ -312,7 +330,8 @@ public partial class AiChatPanel : UserControl
 
         var token = turn.Cancel.Token;
         var result = await ask(token, text => OnPartial(turn, text));
-        turn.StatusBlock = turn.PartialBlock = null;
+        turn.StatusBlock = null;
+        turn.PartialHost = null;
         turn.Cancel.Dispose();
         turn.Cancel = null;
         turn.Seconds = result.Elapsed.TotalSeconds;
@@ -356,7 +375,7 @@ public partial class AiChatPanel : UserControl
         {
             Messages.Children.Add(new TextBlock
             {
-                Text = _profile.EmptyHint,
+                Text = _profile.EmptyHint + "\n\nQuick search, no AI: type @ and a word to find your apps, notes (and the words in their pictures), screenshots and work-log entries, e.g. @invoice.",
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = Brushes.Gray,
                 FontSize = 12,
@@ -400,10 +419,14 @@ public partial class AiChatPanel : UserControl
         {
             case State.Pending:
                 turn.StatusBlock = Note(AiService.Asking());
-                turn.PartialBlock = new TextBlock { TextWrapping = TextWrapping.Wrap, IsVisible = false };
+                turn.PartialHost = new Border { IsVisible = false };
+                turn.Rendered = ""; // a new host after a re-render: draw the answer so far again
                 panel.Children.Add(turn.StatusBlock);
-                panel.Children.Add(turn.PartialBlock);
+                panel.Children.Add(turn.PartialHost);
                 ShowProgress(turn);
+                break;
+            case State.Search:
+                panel.Children.Add(SearchReply(turn));
                 break;
             case State.Stopped:
                 panel.Children.Add(Note("Stopped."));
@@ -445,7 +468,7 @@ public partial class AiChatPanel : UserControl
         var onChoice = turn.OnChoice;
         if (buttons is null && !NoteMode)
         {
-            buttons = _profile.AnswerActions ?? Array.Empty<(string, string)>();
+            buttons = _profile.AnswerActionsFor?.Invoke(turn.Answer) ?? _profile.AnswerActions ?? Array.Empty<(string, string)>();
             onChoice = _profile.OnAnswerAction;
         }
         if (buttons is not null)
@@ -571,7 +594,6 @@ public partial class AiChatPanel : UserControl
         InputBox.Focus();
     }
 
-    private void Close_Click(object? sender, RoutedEventArgs e) => CloseRequested?.Invoke();
 
     private void ClearSelection_Click(object? sender, RoutedEventArgs e)
     {

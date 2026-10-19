@@ -30,12 +30,15 @@ public partial class TimersView : ShellTab
         _chatProfile = new AiChatProfile
         {
             Watermark = "Ask about timers, cron expressions or commands… (Enter sends, Shift+Enter is a new line)",
-            EmptyHint = "Ask about your timers:\n\n• “Cron expression for weekdays at 9:30”\n• “A command that shows free disk space”\n• “Which timers fire too often?”",
+            EmptyHint = "Ask for a timer, or about your timers:\n\n• “Remind me to drink water every 40 minutes”\n• “Every weekday at 9:30 ask AI what to focus on”\n• “A command that shows free disk space”\n• “Which timers fire too often?”\n\nA timer the AI suggests is loaded into the editor for you to check and save.",
             ShareText = "Send my timers",
             ShareTip = "The AI sees every timer's name, schedule and action, and the one in the editor. Untick to chat without sharing it.",
-            GetContext = () => new AiChatContext(TimersText(), "the interval and cron timers", null, null, AiPrompts.AppGuide),
+            GetContext = () => new AiChatContext(TimersText(), "the interval and cron timers", null, null, AiPrompts.AppGuide + "\n\n" + AiPrompts.TimerChatRules),
+            AnswerActionsFor = AnswerButtons,
+            OnAnswerAction = OnAnswerButton,
             Quick = new (string, string, Action)[]
             {
+                ("New timer…", "Describe a timer and let the AI set it up", () => Chat.Prefill("Create a timer that ")),
                 ("Cron for…", "Ask for a cron expression", () => Chat.Prefill("Cron expression for ")),
                 ("Command for…", "Ask for a shell command to use in a timer", () => Chat.Prefill("A command that ")),
             },
@@ -46,12 +49,6 @@ public partial class TimersView : ShellTab
         ApplyAiCommandHint();
         AppRef.SettingsChanged += ApplyAiCommandHint;
         AppRef.TimersReloaded += OnTimersReloaded;
-        DescribeBox.KeyDown += (_, e) =>
-        {
-            if (e.Key != Key.Enter) return;
-            e.Handled = true;
-            Describe_Click(null, new RoutedEventArgs());
-        };
         RefreshList(null);
         TimerService.Ran += OnTimerRan;
         _countdown.Tick += (_, _) => UpdateCountdowns();
@@ -320,61 +317,61 @@ public partial class TimersView : ShellTab
         StatusText.Text = "Timers were updated from another PC.";
     }
 
-    private bool _describing;
-
-    /// <summary>Lets the AI turn a sentence into a timer; it is loaded into the editor unsaved, for review.</summary>
-    private async void Describe_Click(object? sender, RoutedEventArgs e)
+    /// <summary>
+    /// The timer in an AI answer (the ```timer block, or the first JSON object), as an unsaved timer; null when there is none.
+    /// </summary>
+    private static IntervalTimerItem? TimerFromAnswer(string answer)
     {
-        var description = (DescribeBox.Text ?? "").Trim();
-        if (_describing) return;
-        if (description.Length == 0)
+        var fence = System.Text.RegularExpressions.Regex.Match(answer, @"```timer\s*(.*?)```", System.Text.RegularExpressions.RegexOptions.Singleline);
+        if (AiService.ExtractJson(fence.Success ? fence.Groups[1].Value : answer) is not { } json) return null;
+        if (!json.TryGetProperty("action", out _) && !json.TryGetProperty("intervalMinutes", out _) && !json.TryGetProperty("cron", out _)) return null;
+        var action = AiService.Str(json, "action");
+        var cron = AiService.Str(json, "cron").Trim();
+        return new IntervalTimerItem
         {
-            StatusText.Text = "Describe the timer first, e.g. “remind me to drink water every 40 minutes”.";
-            DescribeBox.Focus();
-            return;
-        }
-        _describing = true;
-        DescribeButton.IsEnabled = false;
-        StatusText.Text = AiService.Asking("set up the timer");
-        try
-        {
-            var result = await AiService.AskAsync(AiPrompts.CreateTimer(description));
-            if (!result.Ok)
-            {
-                StatusText.Text = AiService.Failed(result);
-                return;
-            }
-            if (AiService.ExtractJson(result.Text) is not { } json)
-            {
-                StatusText.Text = "The AI's answer wasn't a timer — try describing it differently.";
-                return;
-            }
-            var action = AiService.Str(json, "action");
-            var timer = new IntervalTimerItem
-            {
-                Name = AiService.Str(json, "name"),
-                IntervalMinutes = json.TryGetProperty("intervalMinutes", out var m) && m.TryGetDouble(out var minutes)
-                    ? Math.Max(5 / 60.0, minutes) : 30,
-                Action = Actions.Contains(action) ? action : "beep",
-                Command = AiService.Str(json, "command"),
-                Prompt = AiService.Str(json, "prompt"),
-                Message = AiService.Str(json, "message"),
-                Notify = !json.TryGetProperty("notify", out var n) || n.ValueKind != System.Text.Json.JsonValueKind.False,
-            };
-            _current = null;
-            TimerList.SelectedItem = null;
-            LoadEditor(timer);
-            StatusText.Text = timer.Action == "command"
-                ? "✨ Filled in by AI — check the command carefully, then press Save (Ctrl+S)."
-                : "✨ Filled in by AI — check it, then press Save (Ctrl+S).";
-        }
-        finally
-        {
-            _describing = false;
-            DescribeButton.IsEnabled = true;
-        }
+            Name = AiService.Str(json, "name"),
+            IntervalMinutes = json.TryGetProperty("intervalMinutes", out var m) && m.TryGetDouble(out var minutes)
+                ? Math.Max(5 / 60.0, minutes) : 30,
+            Cron = cron.Length > 0 && CronSchedule.TryParse(cron, out _) is not null ? cron : "",
+            Action = Actions.Contains(action) ? action : "beep",
+            Command = AiService.Str(json, "command"),
+            Prompt = AiService.Str(json, "prompt"),
+            Message = AiService.Str(json, "message"),
+            Notify = !json.TryGetProperty("notify", out var n) || n.ValueKind != System.Text.Json.JsonValueKind.False,
+        };
     }
 
+    /// <summary>The buttons under an answer of the chat: "Load into editor" when it holds a timer, and saving it as a note.</summary>
+    private static (string Action, string Label)[] AnswerButtons(string answer)
+        => TimerFromAnswer(answer) is null
+            ? new[] { ("note", "Save as note") }
+            : new[] { ("timer", "Load into editor"), ("note", "Save as note") };
+
+    private Task<string> OnAnswerButton(string action, string answer)
+    {
+        if (action == "note")
+        {
+            var note = AiService.AnswerToNote("Timers", "#timers #ai", answer);
+            try
+            {
+                AppRef.AddNote(note);
+                return Task.FromResult($"Saved as the note “{note.Title}”.");
+            }
+            catch (Exception ex)
+            {
+                return Task.FromResult("Could not save the note: " + ex.Message);
+            }
+        }
+        if (TimerFromAnswer(answer) is not { } timer) return Task.FromResult("That answer has no timer in it.");
+        Shell.ShowTab("timers"); // opens the content if it was collapsed
+        _current = null;
+        TimerList.SelectedItem = null;
+        LoadEditor(timer);
+        StatusText.Text = timer.Action == "command"
+            ? "✨ Filled in by AI — check the command carefully, then press Save (Ctrl+S)."
+            : "✨ Filled in by AI — check it, then press Save (Ctrl+S).";
+        return Task.FromResult("Loaded into the timer editor — check it and press Save.");
+    }
     private void New_Click(object? sender, RoutedEventArgs e)
     {
         _current = null;

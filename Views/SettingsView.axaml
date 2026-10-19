@@ -15,6 +15,16 @@
       <TabItem Header="General">
         <ScrollViewer>
         <StackPanel Spacing="12" Margin="4,16,4,0">
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <TextBlock Text="Theme" VerticalAlignment="Center"/>
+            <ComboBox x:Name="ThemeCombo" SelectedIndex="0" MinWidth="160" AutomationProperties.Name="Theme"
+                      ToolTip.Tip="Applies at once; it is kept without pressing Save"
+                      SelectionChanged="Theme_Changed">
+              <ComboBoxItem Content="Follow the system"/>
+              <ComboBoxItem Content="Dark"/>
+              <ComboBoxItem Content="Light"/>
+            </ComboBox>
+          </StackPanel>
           <CheckBox x:Name="StartupCheck" Content="Start with the system (hidden in the tray)"/>
           <TextBlock Text="Settings and scripts on this PC are stored in:" FontSize="12" Foreground="Gray"/>
           <DockPanel>
@@ -59,13 +69,13 @@
             <Border CornerRadius="6" Padding="12" Background="#14888888">
               <StackPanel Spacing="2">
                 <TextBlock Text="Preview (what the button copies)" FontSize="12" Foreground="Gray"/>
-                <TextBlock x:Name="PreviewText" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                <TextBlock x:Name="PreviewText" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap"/>
               </StackPanel>
             </Border>
 
             <TextBlock Text="Time-bullet format (the ◷ lines in notes — each new item gets the current time)" Margin="0,8,0,0"/>
             <TextBox x:Name="BulletFormatBox" FontFamily="Consolas,Menlo,monospace" TextChanged="Format_Changed"/>
-            <TextBlock x:Name="BulletPreviewText" FontSize="13" Foreground="Gray"/>
+            <TextBlock x:Name="BulletPreviewText" FontSize="12" Foreground="Gray"/>
 
             <TextBlock FontSize="12" Foreground="Gray" TextWrapping="Wrap"
                        Text="yyyy year · MM month · dd day · HH hour (24h) · hh hour (12h) · tt AM/PM · mm minute · ss second · ddd weekday · MMM month name · zzz UTC offset. Use {DAY} for an uppercase weekday (MON, TUE…).&#10;Put text around the time with braces: [{DAY} {HH:mm}] Standup → [MON 09:30] Standup. Only the parts inside { } are formatted."/>

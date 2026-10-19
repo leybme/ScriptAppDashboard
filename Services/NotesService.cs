@@ -376,15 +376,34 @@ public static class NotesService
     }
 
     /// <summary>All whitespace-separated terms must appear in the title, tags or text (case-insensitive).</summary>
-    public static IEnumerable<NoteItem> Search(IEnumerable<NoteItem> notes, string query)
+    /// <summary>The words of a search query.</summary>
+    public static string[] Terms(string query)
+        => query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>Every word is in the note's title, tags or text.</summary>
+    public static bool Matches(NoteItem n, string[] terms)
     {
-        var terms = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var haystack = $"{n.Title} {n.Tags} {ToPlainText(n.Html)}";
+        return terms.All(t => haystack.Contains(t, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Notes whose title, tags and text hold every word, newest first. With <paramref name="extraText"/> (e.g. the text found
+    /// in the note's pictures) a note also matches when each word is in its own text or in that extra text.
+    /// </summary>
+    public static IEnumerable<NoteItem> Search(IEnumerable<NoteItem> notes, string query, Func<NoteItem, string>? extraText = null)
+    {
+        var terms = Terms(query);
         var ordered = notes.OrderByDescending(n => n.Updated);
         if (terms.Length == 0) return ordered;
 
         return ordered.Where(n =>
         {
-            var haystack = $"{n.Title} {n.Tags} {ToPlainText(n.Html)}";
+            if (Matches(n, terms)) return true;
+            if (extraText is null) return false;
+            var extra = extraText(n);
+            if (extra.Length == 0) return false;
+            var haystack = $"{n.Title} {n.Tags} {ToPlainText(n.Html)} {extra}";
             return terms.All(t => haystack.Contains(t, StringComparison.OrdinalIgnoreCase));
         });
     }

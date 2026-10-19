@@ -4,23 +4,31 @@ using Avalonia.Controls;
 namespace ScriptAppDashboard.Views;
 
 /// <summary>
-/// Shows and hides the AI chat panel of the main window. The window grows by the panel's width when it opens (as far as the
-/// screen allows) and shrinks back when it closes, so the tab in front keeps its room.
+/// Shows and hides the AI chat panel of the main window. The window's width is the host's business: it is told (<c>resize</c>)
+/// before the panel changes, with the old and the new visibility.
 /// </summary>
 public sealed class AiPanelDock
 {
-    private readonly Window _window;
     private readonly AiChatPanel _panel;
-    private double _grew;
+    private readonly Action<bool, bool>? _resize;
+
+    /// <summary>The width of the chat panel while the tab content is open (the panel stretches while it is collapsed).</summary>
+    public const double PanelWidth = 340;
+
+    /// <summary>The width of the screen the window is on, in the window's units; null when unknown.</summary>
+    public static double? AvailableWidth(Window window)
+        => window.Screens.ScreenFromWindow(window) is { } screen ? screen.WorkingArea.Width / screen.Scaling : null;
+
+    /// <summary>The panel with its margins.</summary>
+    public double Room => PanelWidth + _panel.Margin.Left + _panel.Margin.Right;
 
     /// <param name="startVisible">The panel is shown from the start; the window's size already has room for it.</param>
-    public AiPanelDock(Window window, AiChatPanel panel, bool startVisible = false)
+    /// <param name="resize">Called with (was visible, will be visible) when the panel is about to be shown or hidden.</param>
+    public AiPanelDock(AiChatPanel panel, bool startVisible = false, Action<bool, bool>? resize = null)
     {
-        _window = window;
         _panel = panel;
+        _resize = resize;
         panel.IsVisible = startVisible;
-        if (startVisible) _grew = panel.Width + panel.Margin.Left + panel.Margin.Right;
-        panel.CloseRequested += () => Show(false);
     }
 
     public bool IsVisible => _panel.IsVisible;
@@ -33,23 +41,8 @@ public sealed class AiPanelDock
     public void Show(bool show)
     {
         if (_panel.IsVisible == show) return;
+        _resize?.Invoke(!show, show);
         _panel.IsVisible = show;
-        var room = _panel.Width + _panel.Margin.Left + _panel.Margin.Right;
-        if (show)
-        {
-            if (_window.WindowState == WindowState.Normal)
-            {
-                var available = _window.Screens.ScreenFromWindow(_window)?.WorkingArea.Width / (_window.Screens.ScreenFromWindow(_window)?.Scaling ?? 1);
-                var target = available is { } a ? Math.Min(_window.Width + room, a) : _window.Width + room;
-                _grew = Math.Max(0, target - _window.Width);
-                _window.Width = target;
-            }
-        }
-        else if (_grew > 0)
-        {
-            _window.Width = Math.Max(_window.MinWidth, _window.Width - _grew);
-            _grew = 0;
-        }
         Changed?.Invoke();
     }
 }

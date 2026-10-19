@@ -17,6 +17,8 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Material.Icons;
+using Material.Icons.Avalonia;
 using ScriptAppDashboard.Services;
 
 namespace ScriptAppDashboard.Views;
@@ -49,6 +51,7 @@ public partial class NoteEditor : UserControl
 
     private readonly List<Row> _rows = new();
     private Row? _active;
+    private Window? _window;
 
     internal static readonly IBrush Muted = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88));
     internal static readonly IBrush CodeBack = new SolidColorBrush(Color.FromArgb(0x26, 0x80, 0x80, 0x80));
@@ -70,18 +73,31 @@ public partial class NoteEditor : UserControl
         AddHandler(PointerPressedEvent, (_, e) => Editor_PointerPressed(e), RoutingStrategies.Tunnel);
         AddHandler(PointerMovedEvent, (_, e) => Editor_PointerMoved(e), RoutingStrategies.Tunnel);
         AddHandler(PointerReleasedEvent, (_, _) => { _dragAnchor = -1; _viewDrag = null; }, RoutingStrategies.Tunnel);
+        AddHandler(KeyDownEvent, Editor_KeyDown, RoutingStrategies.Tunnel);
         DragDrop.SetAllowDrop(this, true);
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
         AddHandler(DragDrop.DropEvent, OnDrop);
         DetachedFromVisualTree += (_, _) => DisposePictures();
+        AttachedToVisualTree += (_, _) =>
+        {
+            if (TopLevel.GetTopLevel(this) is not Window window || _window == window) return;
+            _window = window;
+            // back from another app: a block kept open for the returning focus is closed if the focus went elsewhere
+            window.Activated += (_, _) => Dispatcher.UIThread.Post(() =>
+            {
+                foreach (var row in _rows.Where(r => r.Editing && !r.Edit.IsFocused).ToList()) EndEdit(row);
+            }, DispatcherPriority.Background);
+        };
         Load("");
     }
 
     // ---- public API -----------------------------------------------------------
 
-    /// <summary>Shows a note body. Does not raise <see cref="Changed"/>.</summary>
+    /// <summary>Shows a note body and starts a new undo history. Does not raise <see cref="Changed"/>.</summary>
     public void Load(string html)
     {
+        CloseSlash();
+        ClearAllSelected();
         DisposePictures();
         _rows.Clear();
         BlockHost.Children.Clear();
@@ -91,7 +107,130 @@ public partial class NoteEditor : UserControl
         foreach (var block in blocks) AddRow(_rows.Count, block);
         RefreshLists();
         Scroller.Offset = default;
+        _undo.Clear();
+        _redo.Clear();
+        _state = Capture();
+        _typingRun = false;
+        CurrentChanged?.Invoke();
     }
+
+    /// <summary>Replaces the note body as one step that Ctrl+Z undoes (AI edits); unchanged blocks are kept as they are.</summary>
+    public void SetHtml(string html)
+    {
+        if (html == ToHtml()) return;
+        ApplyHtml(html);
+        OnChanged();
+        CurrentChanged?.Invoke();
+    }
+
+    // ---- undo / redo of the whole note ----------------------------------------------------
+    // Each block's TextBox only knows its own text, so Enter, joins, deleted blocks and AI edits could not be undone.
+    // The editor keeps snapshots of the note instead; typing in one block within a short pause is one step.
+
+    private sealed record EditorState(string Html, int Row, int Start, int End);
+
+    private readonly List<EditorState> _undo = new(), _redo = new();
+    private EditorState? _state; // the note as it is now
+    private DateTime _lastChange;
+    private bool _typingRun;
+    private const int MaxUndo = 200;
+
+    public bool CanUndo => _undo.Count > 0;
+    public bool CanRedo => _redo.Count > 0;
+
+    /// <summary>Raised when the block the caret is in (or its kind) changes, for the toolbar.</summary>
+    public event Action? CurrentChanged;
+
+    /// <summary>Up on the first line of the first block: the caret moves on to the fields above the note.</summary>
+    public event Action? ExitTop;
+
+    /// <summary>The kind and level of the block being edited (null when none is).</summary>
+    public (BlockKind Kind, int Level)? CurrentBlock
+        => _active is { } row && _rows.Contains(row) ? (row.Block.Kind, row.Block.Level) : null;
+
+    /// <summary>Records the change for undo, then raises <see cref="Changed"/>.</summary>
+    private void OnChanged(bool typing = false)
+    {
+        Record(typing);
+        Changed?.Invoke();
+    }
+
+    private EditorState Capture()
+    {
+        var index = _active is null ? -1 : _rows.IndexOf(_active);
+        var (s, e) = index >= 0 && !_active!.Block.IsGrid ? Selection(_active.Edit) : (0, 0);
+        return new EditorState(ToHtml(), index, s, e);
+    }
+
+    private void Record(bool typing)
+    {
+        var now = Capture();
+        if (_state is null || now.Html == _state.Html)
+        {
+            _state = now;
+            return;
+        }
+        var time = DateTime.UtcNow;
+        var sameRun = typing && _typingRun && now.Row == _state.Row && time - _lastChange < TimeSpan.FromSeconds(1.5);
+        if (!sameRun)
+        {
+            _undo.Add(_state);
+            if (_undo.Count > MaxUndo) _undo.RemoveAt(0);
+        }
+        _redo.Clear();
+        _state = now;
+        _lastChange = time;
+        _typingRun = typing;
+    }
+
+    public void Undo() => Step(_undo, _redo);
+
+    public void Redo() => Step(_redo, _undo);
+
+    private void Step(List<EditorState> from, List<EditorState> to)
+    {
+        if (from.Count == 0) return;
+        var target = from[^1];
+        from.RemoveAt(from.Count - 1);
+        to.Add(Capture());
+        var (changed, count) = ApplyHtml(target.Html);
+        // the caret goes to the change: where it was then if that is inside the change, else to the first changed block
+        // (the focused block may have been replaced, and keys typed next must still reach the note)
+        if (target.Row >= changed && target.Row < changed + Math.Max(1, count) && target.Row < _rows.Count
+            && !_rows[target.Row].Block.IsAtomic)
+            FocusRow(_rows[target.Row], target.Start, target.End);
+        else if (_rows.Skip(changed).Concat(_rows.Take(changed).Reverse()).FirstOrDefault(r => !r.Block.IsAtomic) is { } near)
+            FocusRow(near, near.Block.IsGrid ? 0 : int.MaxValue);
+        _state = Capture();
+        _typingRun = false;
+        Changed?.Invoke();
+        CurrentChanged?.Invoke();
+    }
+
+    /// <summary>Shows <paramref name="html"/> by rebuilding only the blocks between the unchanged start and end
+    /// of the note, so pictures stay loaded and the rest keeps its state. Returns the index of the first changed block
+    /// and how many blocks were put there.</summary>
+    private (int First, int Count) ApplyHtml(string html)
+    {
+        CloseSlash();
+        ClearAllSelected();
+        var blocks = NoteDocument.Parse(html);
+        if (blocks.Count == 0) blocks.Add(new NoteBlock());
+        var keys = blocks.Select(BlockKey).ToList();
+        int head = 0, tail = 0;
+        while (head < _rows.Count && head < blocks.Count && BlockKey(_rows[head].Block) == keys[head]) head++;
+        while (tail < _rows.Count - head && tail < blocks.Count - head
+               && BlockKey(_rows[_rows.Count - 1 - tail].Block) == keys[blocks.Count - 1 - tail]) tail++;
+        var old = _rows.Skip(head).Take(_rows.Count - head - tail).ToList();
+        var at = head + old.Count;
+        // add the new blocks before removing the old ones, so the note is never empty in between
+        foreach (var block in blocks.Skip(head).Take(blocks.Count - head - tail)) AddRow(at++, block);
+        foreach (var row in old) RemoveRow(row);
+        RefreshLists();
+        return (Math.Min(head, _rows.Count - 1), blocks.Count - head - tail);
+    }
+
+    private static string BlockKey(NoteBlock b) => $"{b.Indent}\u0001{b.Stamp}\u0001{NoteDocument.ToHtml(new[] { b })}";
 
     public string ToHtml() => NoteDocument.ToHtml(_rows.Select(r => r.Block).ToList());
 
@@ -125,7 +264,7 @@ public partial class NoteEditor : UserControl
             target.Set(text[..s] + marker + inner + marker + text[e..]);
             target.Select(s + marker.Length, s + marker.Length + inner.Length);
         }
-        Changed?.Invoke();
+        OnChanged();
     }
 
     /// <summary>Turns the selection into a link and selects the address (or inserts a sample link).</summary>
@@ -148,7 +287,7 @@ public partial class NoteEditor : UserControl
             target.Set(text[..s] + "[" + label + "](" + url + ")" + text[e..]);
             target.Select(s + 1, s + 1 + label.Length);
         }
-        Changed?.Invoke();
+        OnChanged();
     }
 
     /// <summary>Changes the current block to <paramref name="kind"/>, or back to a paragraph if it already is one.</summary>
@@ -187,7 +326,7 @@ public partial class NoteEditor : UserControl
         var (s, e) = Selection(target.Box);
         target.Set(current[..s] + text + current[e..]);
         target.Select(s + text.Length, s + text.Length);
-        Changed?.Invoke();
+        OnChanged();
     }
 
     /// <summary>Adds an empty table below the current block and puts the caret in its first cell.</summary>
@@ -207,7 +346,7 @@ public partial class NoteEditor : UserControl
         if (i == _rows.Count - 1 || _rows[i + 1].Block.IsGrid) AddRow(i + 1, new NoteBlock());
         RefreshLists();
         FocusRow(row, 0);
-        Changed?.Invoke();
+        OnChanged();
     }
 
     /// <summary>A block and the text selected in it, taken before a menu or dialog moves the focus away.</summary>
@@ -240,7 +379,7 @@ public partial class NoteEditor : UserControl
         {
             SetText(row, current[..start] + text + current[end..]);
             FocusRow(row, start + text.Length);
-            Changed?.Invoke();
+            OnChanged();
             return true;
         }
         FocusRow(row, start, end);
@@ -259,7 +398,7 @@ public partial class NoteEditor : UserControl
         if (emptyOnly is not null) RemoveRow(emptyOnly);
         RefreshLists();
         if (last is not null && !last.Block.IsAtomic) FocusRow(last, last.Block.Text.Length);
-        Changed?.Invoke();
+        OnChanged();
     }
 
     // ---- rows -------------------------------------------------------------------
@@ -335,8 +474,10 @@ public partial class NoteEditor : UserControl
         edit.TextChanged += (_, _) => Edit_TextChanged(row);
         edit.GotFocus += (_, _) =>
         {
+            var moved = _active != row;
             _active = row;
             row.Editing = true;
+            if (moved) CurrentChanged?.Invoke();
         };
         edit.LostFocus += (_, _) => EndEdit(row);
         edit.PastingFromClipboard += (_, e) => Edit_Paste(row, e);
@@ -348,7 +489,7 @@ public partial class NoteEditor : UserControl
             var value = stamp.Text ?? "";
             if (value == row.Block.Stamp) return;
             row.Block.Stamp = value;
-            Changed?.Invoke();
+            OnChanged(typing: true);
         };
         return row;
     }
@@ -376,7 +517,7 @@ public partial class NoteEditor : UserControl
                 var chart = AddRow(_rows.IndexOf(row) + 1, NoteDocument.ChartFromTable(row.Block));
                 RefreshLists();
                 FocusRow(chart, 0);
-                Changed?.Invoke();
+                OnChanged();
             };
             grid = table;
         }
@@ -384,7 +525,7 @@ public partial class NoteEditor : UserControl
         {
             grid = new NoteChartView(row.Block, showData);
         }
-        grid.Changed += () => Changed?.Invoke();
+        grid.Changed += () => OnChanged(typing: true);
         grid.Exit = direction => _rows.Contains(row) && LeaveGrid(row, direction);
         grid.DeleteRequested += () =>
         {
@@ -394,9 +535,14 @@ public partial class NoteEditor : UserControl
             RefreshLists();
             var near = _rows.ElementAtOrDefault(Math.Min(index, _rows.Count - 1));
             if (near is not null && !near.Block.IsAtomic) FocusRow(near, 0);
-            Changed?.Invoke();
+            OnChanged();
         };
-        grid.AddHandler(GotFocusEvent, (_, _) => _active = row);
+        grid.AddHandler(GotFocusEvent, (_, _) =>
+        {
+            if (_active == row) return;
+            _active = row;
+            CurrentChanged?.Invoke();
+        });
         row.Grid = grid;
         row.Content.Children.Add(grid);
     }
@@ -409,7 +555,7 @@ public partial class NoteEditor : UserControl
         var next = AddRow(_rows.IndexOf(row) + 1, new NoteBlock());
         RefreshLists();
         FocusRow(next, 0);
-        Changed?.Invoke();
+        OnChanged();
         return true;
     }
 
@@ -420,6 +566,7 @@ public partial class NoteEditor : UserControl
         _rows.Remove(row);
         BlockHost.Children.Remove(row.Frame);
         if (_active == row) _active = null;
+        if (_slashRow == row) CloseSlash();
         if (_rows.Count == 0) AddRow(0, new NoteBlock());
     }
 
@@ -445,7 +592,7 @@ public partial class NoteEditor : UserControl
         var b = row.Block;
         var heading = b.Kind == BlockKind.Heading;
         var mono = b.Kind is BlockKind.Code or BlockKind.Raw;
-        double size = mono ? 13 : heading ? b.Level switch { 1 => 24, 2 => 20, 3 => 17, _ => 15 } : 14;
+        double size = mono ? 13 : heading ? b.Level switch { 1 => 22, 2 => 18, 3 => 16, _ => 15 } : 14;
 
         row.View.FontSize = row.Edit.FontSize = size;
         row.View.FontWeight = row.Edit.FontWeight = heading ? FontWeight.SemiBold : FontWeight.Normal;
@@ -621,8 +768,17 @@ public partial class NoteEditor : UserControl
 
     private void EndEdit(Row row)
     {
+        // a click on the "/" menu moves the focus for a moment; close it only when the block really lost the focus
+        if (_slashRow == row)
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_slashRow == row && !row.Edit.IsFocused) CloseSlash();
+            });
         // a context menu on the text box takes focus while it is open — keep editing
         if (row.Edit.ContextFlyout?.IsOpen == true || row.Edit.ContextMenu?.IsOpen == true) return;
+        // switching to another app: the window gives the focus back to this box when it is activated again,
+        // which fails if the box was hidden meanwhile (the caret was lost after Alt+Tab)
+        if (TopLevel.GetTopLevel(this) is Window { IsActive: false }) return;
         row.Editing = false;
         if (!_rows.Contains(row) || !row.Block.HasMarkup) return;
         Render(row);
@@ -679,7 +835,8 @@ public partial class NoteEditor : UserControl
         ApplyKind(row);
         RefreshLists();
         FocusRow(row, s, e);
-        Changed?.Invoke();
+        OnChanged();
+        CurrentChanged?.Invoke();
     }
 
     /// <summary>The block that follows <paramref name="b"/> when Enter is pressed in it.</summary>
@@ -689,8 +846,21 @@ public partial class NoteEditor : UserControl
 
     // ---- keyboard ----------------------------------------------------------------
 
+    /// <summary>Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) anywhere in the note, cells and time stamps included, use the note's history.</summary>
+    private void Editor_KeyDown(object? sender, KeyEventArgs e)
+    {
+        var command = e.KeyModifiers & ~KeyModifiers.Shift;
+        if (command is not (KeyModifiers.Control or KeyModifiers.Meta)) return;
+        var shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+        if (e.Key == Key.Z && !shift) Undo();
+        else if (e.Key == Key.Y && !shift || e.Key == Key.Z && shift) Redo();
+        else return;
+        e.Handled = true;
+    }
+
     private void Edit_KeyDown(Row row, KeyEventArgs e)
     {
+        if (SlashKey(row, e)) return;
         var box = row.Edit;
         var text = box.Text ?? "";
         var (s, end) = Selection(box);
@@ -734,7 +904,13 @@ public partial class NoteEditor : UserControl
                 e.Handled = true;
                 break;
             case Key.Up when none:
-                if (CaretLine(box, out _) == 0 && Move(row, -1, atEnd: true)) e.Handled = true;
+                if (CaretLine(box, out _) != 0) break;
+                if (Move(row, -1, atEnd: true)) e.Handled = true;
+                else if (ExitTop is not null)
+                {
+                    ExitTop();
+                    e.Handled = true;
+                }
                 break;
             case Key.Down when none:
                 if (CaretLine(box, out var lines) >= lines - 1 && Move(row, 1, atEnd: false)) e.Handled = true;
@@ -839,7 +1015,7 @@ public partial class NoteEditor : UserControl
         }
         RefreshLists();
         FocusRow(first, 0);
-        Changed?.Invoke();
+        OnChanged();
     }
 
     /// <summary>The visual line the caret is on (wrapped lines count), and how many there are.</summary>
@@ -878,7 +1054,7 @@ public partial class NoteEditor : UserControl
             if (s != e || s != text.Length || !text.EndsWith('\n')) return false;
             SetText(row, text[..^1]);
             FocusRow(AddRow(index + 1, new NoteBlock()), 0);
-            Changed?.Invoke();
+            OnChanged();
             return true;
         }
 
@@ -889,7 +1065,7 @@ public partial class NoteEditor : UserControl
             {
                 b.Indent--;
                 RefreshLists();
-                Changed?.Invoke();
+                OnChanged();
             }
             else
             {
@@ -906,7 +1082,7 @@ public partial class NoteEditor : UserControl
             AddRow(index, above);
             RefreshLists();
             FocusRow(row, 0);
-            Changed?.Invoke();
+            OnChanged();
             return true;
         }
 
@@ -927,7 +1103,7 @@ public partial class NoteEditor : UserControl
         RefreshLists();
         FocusRow(newRow, reopen.Length);
         if (!row.Editing) Render(row);
-        Changed?.Invoke();
+        OnChanged();
         return true;
     }
 
@@ -954,7 +1130,7 @@ public partial class NoteEditor : UserControl
         if (prev.Block.IsAtomic)
         {
             RemoveRow(prev);
-            Changed?.Invoke();
+            OnChanged();
             return true;
         }
         var prevText = prev.Edit.Text ?? "";
@@ -962,7 +1138,7 @@ public partial class NoteEditor : UserControl
         {
             FocusRow(prev, int.MaxValue);
             if (text.Length == 0) RemoveRow(row);
-            Changed?.Invoke();
+            OnChanged();
             return true;
         }
         // join this paragraph onto the end of the previous block
@@ -970,7 +1146,7 @@ public partial class NoteEditor : UserControl
         FocusRow(prev, prevText.Length);
         RemoveRow(row);
         RefreshLists();
-        Changed?.Invoke();
+        OnChanged();
         return true;
     }
 
@@ -982,7 +1158,7 @@ public partial class NoteEditor : UserControl
         if (next.Block.IsAtomic)
         {
             RemoveRow(next);
-            Changed?.Invoke();
+            OnChanged();
             return true;
         }
         if (!next.Block.HasMarkup) return false;
@@ -991,7 +1167,7 @@ public partial class NoteEditor : UserControl
         RemoveRow(next);
         RefreshLists();
         FocusRow(row, text.Length);
-        Changed?.Invoke();
+        OnChanged();
         return true;
     }
 
@@ -1003,7 +1179,7 @@ public partial class NoteEditor : UserControl
         if (next == row.Block.Indent) return;
         row.Block.Indent = next;
         RefreshLists();
-        Changed?.Invoke();
+        OnChanged();
     }
 
     // ---- typing, pasting, clicking -----------------------------------------------------
@@ -1019,7 +1195,20 @@ public partial class NoteEditor : UserControl
         row.Block.Text = text;
         if (!row.Editing && row.Block.HasMarkup) Render(row);
         if (row.Block.Kind == BlockKind.Paragraph) TryShortcut(row, old);
-        Changed?.Invoke();
+        UpdateSlash(row);
+        OnChanged(typing: true);
+    }
+
+    /// <summary>Turns a block into a divider and puts the caret in the paragraph below it.</summary>
+    private void MakeDivider(Row row)
+    {
+        row.Block.Kind = BlockKind.Divider;
+        ApplyKind(row);
+        var index = _rows.IndexOf(row);
+        var next = index + 1 < _rows.Count && _rows[index + 1].Block.HasMarkup ? _rows[index + 1] : AddRow(index + 1, new NoteBlock());
+        RefreshLists();
+        FocusRow(next, 0);
+        OnChanged();
     }
 
     /// <summary>Markdown-style shortcuts typed at the start of a paragraph: "- ", "1. ", "# ", "> ", "```", "---".</summary>
@@ -1064,13 +1253,7 @@ public partial class NoteEditor : UserControl
             SetText(row, current[prefix.Length..]);
             if (kind == BlockKind.Divider)
             {
-                row.Block.Kind = BlockKind.Divider;
-                ApplyKind(row);
-                var index = _rows.IndexOf(row);
-                var next = index + 1 < _rows.Count && _rows[index + 1].Block.HasMarkup ? _rows[index + 1] : AddRow(index + 1, new NoteBlock());
-                RefreshLists();
-                FocusRow(next, 0);
-                Changed?.Invoke();
+                MakeDivider(row);
                 return;
             }
             row.Block.Level = level;
@@ -1106,6 +1289,141 @@ public partial class NoteEditor : UserControl
         var srcs = AddImageFiles(files);
         if (srcs.Count == 0 && ClipboardImageService.TryGetImage() is { } image) srcs = AddImageBytes(image.Data, image.Extension);
         if (srcs.Count > 0) InsertImages(srcs, CaptureSelection());
+    }
+
+    // ---- "/" menu: typed on an empty line, it turns the line into any kind of block ----------------
+
+    private sealed record SlashItem(string Label, string Hint, string Words, MaterialIconKind Icon, Action<Row> Apply);
+
+    private List<SlashItem>? _slashItems;
+    private List<SlashItem> _slashMatches = new();
+    private Row? _slashRow;
+    private Row? _slashDismissed; // Escape closed the menu for this line until its "/" is gone
+
+    /// <summary>Raised by "/picture": the host opens its file picker (the caret's block is where the pictures go).</summary>
+    public event Action? PictureRequested;
+
+    private List<SlashItem> SlashItems => _slashItems ??= new()
+    {
+        new("Text", "plain paragraph", "text paragraph plain normal", MaterialIconKind.FormatParagraph, r => ChangeKind(r, BlockKind.Paragraph)),
+        new("Heading 1", "#", "heading h1 title", MaterialIconKind.FormatHeader1, r => ChangeKind(r, BlockKind.Heading, 1)),
+        new("Heading 2", "##", "heading h2 subtitle", MaterialIconKind.FormatHeader2, r => ChangeKind(r, BlockKind.Heading, 2)),
+        new("Heading 3", "###", "heading h3", MaterialIconKind.FormatHeader3, r => ChangeKind(r, BlockKind.Heading, 3)),
+        new("Bulleted list", "-", "bullets list ul unordered", MaterialIconKind.FormatListBulleted, r => ChangeKind(r, BlockKind.Bullet)),
+        new("Numbered list", "1.", "numbers list ol ordered", MaterialIconKind.FormatListNumbered, r => ChangeKind(r, BlockKind.Number)),
+        new("Time bullets", "each item stamped", "timed time log stamp journal", MaterialIconKind.TimelineClockOutline, r => ChangeKind(r, BlockKind.Timed)),
+        new("Quote", ">", "quote blockquote citation", MaterialIconKind.FormatQuoteOpen, r => ChangeKind(r, BlockKind.Quote)),
+        new("Code block", "```", "code pre snippet script", MaterialIconKind.CodeBraces, r => ChangeKind(r, BlockKind.Code)),
+        new("Divider", "---", "divider rule line hr separator", MaterialIconKind.Minus, MakeDivider),
+        new("Table", "rows and columns", "table grid spreadsheet", MaterialIconKind.TableLarge, r => { _active = r; InsertTable(); }),
+        new("Chart", "bar, line or pie", "chart graph bar line pie plot", MaterialIconKind.ChartBar, r => { _active = r; InsertChart(); }),
+        new("Picture", "from a file", "picture image photo screenshot", MaterialIconKind.ImageOutline, r =>
+        {
+            _active = r;
+            PictureRequested?.Invoke();
+        }),
+        new("Date and time", "now", "date time now today stamp", MaterialIconKind.ClockOutline, r =>
+        {
+            var stamp = TimestampService.Now((Application.Current as App)?.Config.TimestampFormat ?? "yyyy-MM-dd HH:mm");
+            SetText(r, stamp);
+            FocusRow(r, stamp.Length);
+            OnChanged();
+        }),
+    };
+
+    /// <summary>Shows, filters or closes the menu while a paragraph holds just "/" and a few letters.</summary>
+    private void UpdateSlash(Row row)
+    {
+        var text = row.Block.Text;
+        if (!text.StartsWith('/') && _slashDismissed == row) _slashDismissed = null;
+        if (row.Block.Kind != BlockKind.Paragraph || !text.StartsWith('/') || text.Length > 24 || text.Contains('\n') || _slashDismissed == row)
+        {
+            if (_slashRow == row) CloseSlash();
+            return;
+        }
+        var query = text[1..].Trim().ToLowerInvariant();
+        _slashMatches = SlashItems.Where(i => query.Length == 0 || i.Label.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || i.Words.Split(' ').Any(w => w.StartsWith(query))).ToList();
+        if (_slashMatches.Count == 0)
+        {
+            CloseSlash();
+            return;
+        }
+        _slashRow = row;
+        SlashList.Items.Clear();
+        for (var i = 0; i < _slashMatches.Count; i++)
+        {
+            var item = _slashMatches[i];
+            var index = i;
+            var label = new TextBlock { Text = item.Label, VerticalAlignment = VerticalAlignment.Center };
+            var hint = new TextBlock { Text = item.Hint, FontSize = 11, Foreground = Muted, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(label, 1);
+            Grid.SetColumn(hint, 2);
+            var entry = new ListBoxItem
+            {
+                Focusable = false,
+                Padding = new Thickness(8, 5),
+                Content = new Grid
+                {
+                    ColumnDefinitions = new ColumnDefinitions("26,*,Auto"),
+                    Children = { new MaterialIcon { Kind = item.Icon, Width = 16, Height = 16, HorizontalAlignment = HorizontalAlignment.Left }, label, hint },
+                },
+            };
+            AutomationProperties.SetName(entry, item.Label);
+            // apply on press, before the click can move the focus out of the line
+            entry.AddHandler(PointerPressedEvent, (_, e) =>
+            {
+                e.Handled = true;
+                ApplySlash(index);
+            }, RoutingStrategies.Tunnel);
+            SlashList.Items.Add(entry);
+        }
+        SlashList.SelectedIndex = 0;
+        SlashPopup.PlacementTarget = row.Edit;
+        SlashPopup.IsOpen = true;
+    }
+
+    private void CloseSlash()
+    {
+        _slashRow = null;
+        if (SlashPopup.IsOpen) SlashPopup.IsOpen = false;
+    }
+
+    /// <summary>Arrows, Enter / Tab and Escape while the menu is open. True when the key was used.</summary>
+    private bool SlashKey(Row row, KeyEventArgs e)
+    {
+        if (_slashRow != row || !SlashPopup.IsOpen || e.KeyModifiers != KeyModifiers.None) return false;
+        var count = _slashMatches.Count;
+        switch (e.Key)
+        {
+            case Key.Down or Key.Up:
+                SlashList.SelectedIndex = (Math.Max(0, SlashList.SelectedIndex) + (e.Key == Key.Down ? 1 : count - 1)) % count;
+                SlashList.ScrollIntoView(SlashList.SelectedIndex);
+                break;
+            case Key.Enter or Key.Tab:
+                ApplySlash(Math.Max(0, SlashList.SelectedIndex));
+                break;
+            case Key.Escape:
+                _slashDismissed = row;
+                CloseSlash();
+                break;
+            default:
+                return false;
+        }
+        e.Handled = true;
+        return true;
+    }
+
+    private void ApplySlash(int index)
+    {
+        var row = _slashRow;
+        if (row is null || index < 0 || index >= _slashMatches.Count) return;
+        var item = _slashMatches[index];
+        CloseSlash();
+        if (!_rows.Contains(row)) return;
+        SetText(row, "");
+        FocusRow(row, 0);
+        item.Apply(row);
     }
 
     // ---- pictures ----------------------------------------------------------------------
@@ -1152,18 +1470,21 @@ public partial class NoteEditor : UserControl
     public void InsertImages(IReadOnlyList<string> srcs, EditorSelection? after = null)
     {
         if (srcs.Count == 0) return;
-        var index = after?.Block is Row r && _rows.Contains(r) ? _rows.IndexOf(r) + 1 : _rows.Count;
-        var emptyOnly = _rows.Count == 1 && _rows[0].Block.Kind == BlockKind.Paragraph && _rows[0].Block.Text.Length == 0 ? _rows[0] : null;
+        var anchor = after?.Block is Row r && _rows.Contains(r) ? r : null;
+        var index = anchor is null ? _rows.Count : _rows.IndexOf(anchor) + 1;
+        // pictures take the place of the empty line they are put on
+        static bool Empty(Row row) => row.Block is { Kind: BlockKind.Paragraph, Text.Length: 0 };
+        var empty = anchor is not null && Empty(anchor) ? anchor : _rows.Count == 1 && Empty(_rows[0]) ? _rows[0] : null;
         foreach (var src in srcs) AddRow(index++, NoteDocument.Image(src));
-        if (emptyOnly is not null)
+        if (empty is not null)
         {
-            RemoveRow(emptyOnly);
-            index--;
+            if (_rows.IndexOf(empty) < index) index--;
+            RemoveRow(empty);
         }
         var next = index < _rows.Count && _rows[index].Block.Kind == BlockKind.Paragraph ? _rows[index] : AddRow(index, new NoteBlock());
         RefreshLists();
         FocusRow(next, 0);
-        Changed?.Invoke();
+        OnChanged();
     }
 
     /// <summary>Loads the picture scaled down to at most 1600 px wide, so big screenshots don't hold a lot of memory.</summary>
@@ -1374,7 +1695,7 @@ public partial class NoteEditor : UserControl
             RefreshLists();
             var near = _rows.ElementAtOrDefault(Math.Min(index, _rows.Count - 1));
             if (near is not null && !near.Block.IsAtomic) FocusRow(near, 0);
-            Changed?.Invoke();
+            OnChanged();
         };
         return new ContextMenu { Items = { open, remove } };
     }
@@ -1413,7 +1734,7 @@ public partial class NoteEditor : UserControl
         {
             SetText(row, current[..s] + text + current[e..]);
             FocusRow(row, s + text.Length);
-            Changed?.Invoke();
+            OnChanged();
             return;
         }
 
@@ -1438,7 +1759,7 @@ public partial class NoteEditor : UserControl
         if (last != row && !last.Editing) Render(last);
         RefreshLists();
         FocusRow(last, caret);
-        Changed?.Invoke();
+        OnChanged();
     }
 
     private void View_PointerPressed(Row row, PointerPressedEventArgs e)

@@ -38,8 +38,8 @@ public partial class WorkLogView : ShellTab
             OnAnswerAction = (_, text) => Task.FromResult(SaveAnswer("Work log " + RangeText(_summary), "#worklog #ai", text)),
             Quick = new (string, string, Action)[]
             {
-                ("Report", "Standup-style report of this period, which you can save as a note", () => AskAi(timesheet: false)),
-                ("Timesheet", "Group this period into projects / tasks with hours, as a table", () => AskAi(timesheet: true)),
+                ("AI report", "A standup-style report of this period: what you worked on, where focus went, what's next. You can save it as a note.", () => AskAi(timesheet: false)),
+                ("AI timesheet", "Group this period into projects / tasks with hours, as a table. You can save it as a note.", () => AskAi(timesheet: true)),
                 ("Distractions?", "Ask which apps or windows took time without being work", () => _ = Chat.Ask("Which apps or windows took the most time, and which of them look like distractions?")),
             },
         };
@@ -117,10 +117,6 @@ public partial class WorkLogView : ShellTab
         await clipboard.SetTextAsync(WorkLogService.ToMarkdown(_summary));
         InfoText.Text = "Summary copied — paste it into an AI chat or a note for analysis.";
     }
-
-    private void AiReport_Click(object? sender, RoutedEventArgs e) => AskAi(timesheet: false);
-
-    private void AiTimesheet_Click(object? sender, RoutedEventArgs e) => AskAi(timesheet: true);
 
     /// <summary>Sends the period on screen (with its timeline) to the AI as a turn of the chat; the answer can be saved as a note.</summary>
     private void AskAi(bool timesheet)

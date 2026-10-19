@@ -104,6 +104,18 @@ public static class ImageIndexService
         }
     }
 
+    /// <summary>Only the words found in the pictures of a note, without labels, for searching; "" when none were read yet.</summary>
+    public static string SearchTextOfNote(string html)
+    {
+        var sb = new StringBuilder();
+        foreach (var src in NotesService.ImageSources(html).Distinct())
+        {
+            var text = TextOf(src).Replace('\n', ' ').Trim();
+            if (text.Length > 0) sb.Append(text).Append(' ');
+        }
+        return sb.ToString().Trim();
+    }
+
     /// <summary>Text of the pictures in a note body, for the AI: "Picture images/x.png contains: …".</summary>
     public static string TextOfNote(string html, int maxChars = 3000)
     {
