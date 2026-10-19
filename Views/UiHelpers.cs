@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Threading.Tasks;
 using Avalonia;
@@ -29,17 +30,17 @@ public static class UiHelpers
 
 public static class Dialogs
 {
-    public static async Task Message(Window owner, string title, string text)
+    public static async Task Message(Visual owner, string title, string text)
     {
         var win = BuildShell(title, text, out var buttons);
         var ok = new Button { Content = "OK", MinWidth = 80 };
         var window = win;
         ok.Click += (_, _) => window.Close();
         buttons.Children.Add(ok);
-        await win.ShowDialog(owner);
+        await win.ShowDialog(OwnerWindow(owner));
     }
 
-    public static async Task<bool> Confirm(Window owner, string title, string text, string confirmLabel = "Remove")
+    public static async Task<bool> Confirm(Visual owner, string title, string text, string confirmLabel = "Remove")
     {
         var result = false;
         var win = BuildShell(title, text, out var buttons);
@@ -49,7 +50,7 @@ public static class Dialogs
         yes.Click += (_, _) => { result = true; win.Close(); };
         buttons.Children.Add(no);
         buttons.Children.Add(yes);
-        await win.ShowDialog(owner);
+        await win.ShowDialog(OwnerWindow(owner));
         return result;
     }
 
@@ -57,7 +58,7 @@ public static class Dialogs
     /// Asks for a short text (Enter sends, Shift+Enter starts a new line); null when cancelled. Each suggestion is a
     /// button that puts its text in the box.
     /// </summary>
-    public static async Task<string?> Prompt(Window owner, string title, string text, string initial, string watermark,
+    public static async Task<string?> Prompt(Visual owner, string title, string text, string initial, string watermark,
         string okLabel, params string[] suggestions)
     {
         string? result = null;
@@ -126,9 +127,13 @@ public static class Dialogs
             box.Focus();
             box.SelectAll();
         };
-        await win.ShowDialog(owner);
+        await win.ShowDialog(OwnerWindow(owner));
         return result;
     }
+
+    /// <summary>The window a dialog opens over: the owner itself, or the window that holds it (a tab of the main window).</summary>
+    public static Window OwnerWindow(Visual owner)
+        => owner as Window ?? TopLevel.GetTopLevel(owner) as Window ?? throw new InvalidOperationException("The control is not in a window.");
 
     private static Window BuildShell(string title, string text, out StackPanel buttons)
     {

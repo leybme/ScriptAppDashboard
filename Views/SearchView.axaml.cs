@@ -14,13 +14,13 @@ using ScriptAppDashboard.Services;
 namespace ScriptAppDashboard.Views;
 
 /// <summary>One search box over notes and the work log (window titles / tabs, launches, timer runs).</summary>
-public partial class SearchWindow : Window
+public partial class SearchView : ShellTab
 {
     private App AppRef => (App)Application.Current!;
     private readonly DispatcherTimer _debounce = new() { Interval = TimeSpan.FromMilliseconds(300) };
     private int _version;
 
-    public SearchWindow()
+    public SearchView()
     {
         InitializeComponent();
         _debounce.Tick += async (_, _) =>
@@ -29,8 +29,46 @@ public partial class SearchWindow : Window
             await RunSearchAsync();
         };
         QueryBox.TextChanged += (_, _) => { _debounce.Stop(); _debounce.Start(); };
-        Closed += (_, _) => _debounce.Stop();
+        _chatProfile = new AiChatProfile
+        {
+            Watermark = "Ask about what you searched for… (Enter sends, Shift+Enter is a new line)",
+            EmptyHint = "The AI searches your notes, screenshots and the words in your pictures for every question:\n\n• “What did I decide about the invoice template?”\n• “Where did I write down the server password hint?”",
+            ShareText = "Send the search",
+            ShareTip = "The AI sees what you searched for and what was found. Untick to chat without sharing it.",
+            GetContext = () => new AiChatContext(SearchText(), "the search page", null, null, AiPrompts.AppGuide),
+            AnswerActions = new[] { ("note", "Save as note") },
+            OnAnswerAction = (_, text) =>
+            {
+                var note = AiService.AnswerToNote("Search: " + (QueryBox.Text ?? "").Trim(), "#search #ai", text);
+                try
+                {
+                    AppRef.AddNote(note);
+                    return Task.FromResult($"Saved as the note “{note.Title}”.");
+                }
+                catch (Exception ex)
+                {
+                    return Task.FromResult("Could not save the note: " + ex.Message);
+                }
+            },
+        };
+        _chatProfile.SetLabel("Search");
     }
+
+    private readonly AiChatProfile _chatProfile;
+
+    public override AiChatProfile? ChatProfile => _chatProfile;
+
+    public override void OnShown() => FocusSearch();
+
+    /// <summary>What the chat is told: the words searched for, and the result list as text.</summary>
+    private string SearchText()
+    {
+        var query = (QueryBox.Text ?? "").Trim();
+        if (query.Length == 0) return "(nothing searched for yet)";
+        return $"Searched for: {query}\n{SummaryText.Text}\n" + string.Join("\n", _resultLines);
+    }
+
+    private List<string> _resultLines = new();
 
     public void FocusSearch()
     {
@@ -40,8 +78,7 @@ public partial class SearchWindow : Window
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
-        if (e.Key == Key.Escape) { Close(); e.Handled = true; }
-        else if (e.Key == Key.Enter) { _debounce.Stop(); _ = RunSearchAsync(); e.Handled = true; }
+        if (e.Key == Key.Enter) { _debounce.Stop(); _ = RunSearchAsync(); e.Handled = true; }
         base.OnKeyDown(e);
     }
 
@@ -74,6 +111,10 @@ public partial class SearchWindow : Window
         });
         if (version != _version) return; // a newer search started meanwhile
 
+        _resultLines = notes.Take(30).Select(n => $"Note “{n.Title}” ({n.Updated:yyyy-MM-dd}): {Snippet(NotesService.ToPlainText(n.Html), query)}")
+            .Concat(captures.Take(15).Select(h => $"Capture “{CaptureService.DisplayTitle(h.Capture)}”: {h.Where}: {h.Snippet}"))
+            .Concat(hits.Take(30).Select(h => $"Work log {h.Day:yyyy-MM-dd} [{h.App}] {h.Text}"))
+            .ToList();
         ResultHost.Children.Clear();
         var windowSeconds = hits.Where(h => h.Kind == "window").Sum(h => h.Seconds);
         SummaryText.Text = $"{notes.Count} note(s) · {captures.Count} capture(s) · {hits.Count} work-log match(es)" +
@@ -208,7 +249,7 @@ public partial class SearchWindow : Window
         ToolTip.SetTip(row, label + "\n(click to copy)");
         row.Click += async (_, _) =>
         {
-            if (GetTopLevel(this)?.Clipboard is { } clipboard)
+            if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard)
             {
                 await clipboard.SetTextAsync($"{hit.Day:yyyy-MM-dd} {detail} {label}");
                 SummaryText.Text = "Copied: " + label;

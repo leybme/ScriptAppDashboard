@@ -12,7 +12,7 @@ using ScriptAppDashboard.Services;
 
 namespace ScriptAppDashboard.Views;
 
-public partial class TimersWindow : Window
+public partial class TimersView : ShellTab
 {
     private static readonly string[] Actions = { "beep", "command", "ai" };
 
@@ -24,19 +24,25 @@ public partial class TimersWindow : Window
     private readonly Dictionary<Guid, (IntervalTimerItem Timer, TextBlock Detail)> _rows = new();
     private readonly DispatcherTimer _countdown = new() { Interval = TimeSpan.FromSeconds(1) };
 
-    public TimersWindow()
+    public TimersView()
     {
         InitializeComponent();
+        _chatProfile = new AiChatProfile
+        {
+            Watermark = "Ask about timers, cron expressions or commands… (Enter sends, Shift+Enter is a new line)",
+            EmptyHint = "Ask about your timers:\n\n• “Cron expression for weekdays at 9:30”\n• “A command that shows free disk space”\n• “Which timers fire too often?”",
+            ShareText = "Send my timers",
+            ShareTip = "The AI sees every timer's name, schedule and action, and the one in the editor. Untick to chat without sharing it.",
+            GetContext = () => new AiChatContext(TimersText(), "the interval and cron timers", null, null, AiPrompts.AppGuide),
+            Quick = new (string, string, Action)[]
+            {
+                ("Cron for…", "Ask for a cron expression", () => Chat.Prefill("Cron expression for ")),
+                ("Command for…", "Ask for a shell command to use in a timer", () => Chat.Prefill("A command that ")),
+            },
+        };
+        _chatProfile.SetLabel("Timers");
         PlaceholderHint.Text = "Filled in when the timer fires: " +
                                string.Join(" · ", AiService.Placeholders.Select(p => $"{p.Name} {p.Description}"));
-        _dock = new AiPanelDock(this, Chat);
-        Chat.UseGeneral("Ask about timers, cron expressions or commands… (Enter sends, Shift+Enter is a new line)",
-            "Ask about your timers:\n\n• “Cron expression for weekdays at 9:30”\n• “A command that shows free disk space”\n• “Which timers fire too often?”",
-            "Send my timers", "The AI sees every timer's name, schedule and action, and the one in the editor. Untick to chat without sharing it.");
-        Chat.GetContext = () => new AiChatContext(TimersText(), "the interval and cron timers", null, null, AiPrompts.AppGuide);
-        Chat.SetQuickActions(
-            ("Cron for…", "Ask for a cron expression", () => Chat.Prefill("Cron expression for ")),
-            ("Command for…", "Ask for a shell command to use in a timer", () => Chat.Prefill("A command that ")));
         ApplyAiCommandHint();
         AppRef.SettingsChanged += ApplyAiCommandHint;
         AppRef.TimersReloaded += OnTimersReloaded;
@@ -52,19 +58,13 @@ public partial class TimersWindow : Window
         _countdown.Start();
         ApplyPause();
         AppRef.TimersPauseChanged += ApplyPause;
-        Closed += (_, _) =>
-        {
-            TimerService.Ran -= OnTimerRan;
-            AppRef.TimersPauseChanged -= ApplyPause;
-            AppRef.SettingsChanged -= ApplyAiCommandHint;
-            AppRef.TimersReloaded -= OnTimersReloaded;
-            _countdown.Stop();
-        };
     }
 
-    private readonly AiPanelDock _dock;
+    private readonly AiChatProfile _chatProfile;
 
-    private void Chat_Click(object? sender, RoutedEventArgs e) => _dock.Toggle();
+    public override AiChatProfile? ChatProfile => _chatProfile;
+
+    public override void OnShown() => UpdateCountdowns();
 
     /// <summary>What the chat is told: every saved timer, and the one in the editor if it isn't saved yet.</summary>
     private string TimersText()
@@ -269,8 +269,7 @@ public partial class TimersWindow : Window
     {
         if (e.KeyModifiers == KeyModifiers.Control)
         {
-            if (e.Key == Key.J) { _dock.Toggle(); e.Handled = true; }
-            else if (e.Key == Key.S) { SaveCurrent(); e.Handled = true; }
+            if (e.Key == Key.S) { SaveCurrent(); e.Handled = true; }
             else if (e.Key == Key.N) { New_Click(null, new RoutedEventArgs()); e.Handled = true; }
         }
         base.OnKeyDown(e);

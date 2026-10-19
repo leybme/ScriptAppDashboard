@@ -11,14 +11,14 @@ using ScriptAppDashboard.Services;
 
 namespace ScriptAppDashboard.Views;
 
-public partial class SettingsWindow : Window
+public partial class SettingsView : ShellTab
 {
     private App AppRef => (App)Application.Current!;
     private readonly DispatcherTimer _previewTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private bool _loading = true;
     private bool _startupInitial;
 
-    public SettingsWindow()
+    public SettingsView()
     {
         InitializeComponent();
         var config = AppRef.Config;
@@ -54,12 +54,42 @@ public partial class SettingsWindow : Window
 
         _previewTimer.Tick += (_, _) => UpdatePreview();
         _previewTimer.Start();
-        Closed += (_, _) => _previewTimer.Stop();
         Loaded += async (_, _) => await LoadStartupAsync();
 
         _loading = false;
         UpdatePreview();
         UpdateWorkHoursPreview();
+        _chatProfile = new AiChatProfile
+        {
+            Watermark = "Ask about a setting… (Enter sends, Shift+Enter is a new line)",
+            EmptyHint = "Ask how a setting works, or what to change:\n\n• “How do I make the AI answer in Vietnamese?”\n• “What does the idle time do?”\n• “Why is my capture hotkey not working?”",
+            ShareText = "Send my settings",
+            ShareTip = "The AI sees the saved settings (not what you have typed but not saved yet). Untick to chat without sharing them.",
+            GetContext = () => new AiChatContext(SettingsText(), "the settings page", null, null, AiPrompts.AppGuide),
+        };
+        _chatProfile.SetLabel("Settings");
+    }
+
+    private readonly AiChatProfile _chatProfile;
+
+    public override AiChatProfile? ChatProfile => _chatProfile;
+
+    /// <summary>What the chat is told: the saved settings, one per line.</summary>
+    private string SettingsText()
+    {
+        var c = AppRef.Config;
+        static string OnOff(bool on) => on ? "on" : "off";
+        return string.Join("\n", new[]
+        {
+            $"- AI: {AiService.DisplayName}; answer language: {(AiService.Language.Length > 0 ? AiService.Language : "follows the content")}; command: {AiService.Command}",
+            $"- AI auto title: {OnOff(c.AiAutoTitle)}. AI day summary: {OnOff(c.AiDaySummary)}.",
+            $"- Hotkeys: Ask AI {(string.IsNullOrWhiteSpace(c.AiHotkey) ? "(none)" : c.AiHotkey)}, capture {(string.IsNullOrWhiteSpace(c.CaptureHotkey) ? "(none)" : c.CaptureHotkey)}" +
+                (AppRef.HotkeyError is { } error ? $" — problem: {error}" : "") + ".",
+            $"- Captures: OCR {OnOff(c.CaptureOcr)}.",
+            $"- Work log: {OnOff(c.WorkLogEnabled)}, sample every {c.WorkLogSampleSeconds} s, idle after {c.WorkLogIdleMinutes} min; working hours {new WorkHours(c).Describe()}.",
+            $"- Time button: {OnOff(c.TimestampButtonEnabled)}, format {c.TimestampFormat}; time-bullet format {c.TimeBulletFormat}.",
+            $"- Data folder: {(string.IsNullOrWhiteSpace(c.DataFolder) ? "(this PC only)" : c.DataFolder)}; share timers between PCs: {OnOff(c.SyncTimers)}.",
+        });
     }
 
     private readonly CheckBox[] _dayChecks = new CheckBox[7];
@@ -312,7 +342,7 @@ public partial class SettingsWindow : Window
         return true;
     }
 
-    private void Close_Click(object? sender, RoutedEventArgs e) => Close();
+    private void Close_Click(object? sender, RoutedEventArgs e) => Shell.ShowTab("apps");
 
     private async void Save_Click(object? sender, RoutedEventArgs e)
     {

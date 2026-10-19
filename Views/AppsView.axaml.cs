@@ -16,7 +16,8 @@ using ScriptAppDashboard.Services;
 
 namespace ScriptAppDashboard.Views;
 
-public partial class MainWindow : Window
+/// <summary>The apps tab: the user's scripts and programs as tiles.</summary>
+public partial class AppsView : ShellTab
 {
     private static readonly Color[] TileColors =
     {
@@ -28,41 +29,33 @@ public partial class MainWindow : Window
     private App AppRef => (App)Application.Current!;
     private AppConfig Config => AppRef.Config;
 
-    public MainWindow()
+    private readonly AiChatProfile _chatProfile;
+
+    public override AiChatProfile? ChatProfile => _chatProfile;
+
+    public AppsView()
     {
         InitializeComponent();
-        _dock = new AiPanelDock(this, Chat);
-        Chat.UseGeneral("Ask about your scripts, or for a new one… (Enter sends, Shift+Enter is a new line)",
-            "Ask about your scripts:\n\n• “Which of my scripts touch the network?”\n• “Write a PowerShell script that cleans my Downloads folder”\n\n" +
-            "To see what one script does, right-click its tile → Explain with AI.",
-            "Send my script list", "The AI sees each tile's name, file, interpreter and arguments (not the script's code). Untick to chat without sharing it.");
-        Chat.GetContext = () => new AiChatContext(ScriptsText(), "the script dashboard", null, null, AiPrompts.AppGuide);
-        Chat.AnswerActions = new[] { ("note", "Save as note") };
-        Chat.OnAnswerAction = (_, text) => Task.FromResult(SaveAnswerAsNote("Ask AI", "#ai", text, null));
-        Chat.SetQuickActions(
-            ("Write a script…", "Describe a script and let the AI write it", () => Chat.Prefill("Write a script that ")),
-            ("Summarise my scripts", "A short overview of what the tiles do", () => _ = Chat.Ask("Give me a short overview of my scripts, grouped by purpose.")));
+        _chatProfile = new AiChatProfile
+        {
+            Watermark = "Ask about your scripts, or for a new one… (Enter sends, Shift+Enter is a new line)",
+            EmptyHint = "Ask about your scripts:\n\n• “Which of my scripts touch the network?”\n• “Write a PowerShell script that cleans my Downloads folder”\n\n" +
+                        "To see what one script does, right-click its tile → Explain with AI.",
+            ShareText = "Send my script list",
+            ShareTip = "The AI sees each tile's name, file, interpreter and arguments (not the script's code). Untick to chat without sharing it.",
+            GetContext = () => new AiChatContext(ScriptsText(), "the script dashboard", null, null, AiPrompts.AppGuide),
+            AnswerActions = new[] { ("note", "Save as note") },
+            OnAnswerAction = (_, text) => Task.FromResult(SaveAnswerAsNote("Ask AI", "#ai", text, null)),
+            Quick = new (string, string, Action)[]
+            {
+                ("Write a script…", "Describe a script and let the AI write it", () => Chat.Prefill("Write a script that ")),
+                ("Summarise my scripts", "A short overview of what the tiles do", () => _ = Chat.Ask("Give me a short overview of my scripts, grouped by purpose.")),
+            },
+        };
         RefreshTiles();
         ApplyTimestampButton();
-        ApplyAskAiTip();
         AppRef.SettingsChanged += ApplyTimestampButton;
-        AppRef.SettingsChanged += UpdateToday;
-        AppRef.SettingsChanged += ApplyAskAiTip;
-        _todayTimer.Tick += (_, _) => UpdateToday();
-        _todayTimer.Start();
-        Opened += (_, _) => UpdateToday();
-        Activated += (_, _) => UpdateToday();
-        Closed += (_, _) =>
-        {
-            AppRef.SettingsChanged -= ApplyTimestampButton;
-            AppRef.SettingsChanged -= UpdateToday;
-            AppRef.SettingsChanged -= ApplyAskAiTip;
-            _todayTimer.Stop();
-        };
     }
-
-    private readonly Avalonia.Threading.DispatcherTimer _todayTimer = new() { Interval = TimeSpan.FromMinutes(1) };
-    private readonly AiPanelDock _dock;
 
     /// <summary>What the chat is told about the dashboard: one line per tile.</summary>
     private string ScriptsText()
@@ -88,49 +81,6 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Shows "Today 2h 14m" in the status bar (reading the log off the UI thread).</summary>
-    private async void UpdateToday()
-    {
-        if (!WorkLogService.IsSupported || !Config.WorkLogEnabled || !IsVisible)
-        {
-            TodayButton.IsVisible = WorkLogService.IsSupported && IsVisible && !Config.WorkLogEnabled;
-            TodayButton.Content = "Work log off";
-            return;
-        }
-        try
-        {
-            var seconds = await Task.Run(WorkLogService.TodayActiveSeconds);
-            var minutes = (int)(seconds / 60);
-            TodayButton.Content = "Today " + (minutes >= 60 ? $"{minutes / 60}h {minutes % 60:00}m" : $"{minutes}m") + " active";
-            TodayButton.IsVisible = true;
-        }
-        catch
-        {
-            TodayButton.IsVisible = false;
-        }
-    }
-
-    private void TodayButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowWorkLog();
-
-    private void SearchButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowSearch();
-
-    private void CapturesButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowCaptures();
-
-    protected override void OnKeyDown(Avalonia.Input.KeyEventArgs e)
-    {
-        if (e.KeyModifiers == Avalonia.Input.KeyModifiers.Control && e.Key == Avalonia.Input.Key.F)
-        {
-            AppRef.ShowSearch();
-            e.Handled = true;
-        }
-        else if (e.KeyModifiers == Avalonia.Input.KeyModifiers.Control && e.Key == Avalonia.Input.Key.J)
-        {
-            _dock.Toggle();
-            e.Handled = true;
-        }
-        base.OnKeyDown(e);
-    }
-
     private void ApplyTimestampButton()
     {
         CopyTimeButton.IsVisible = Config.TimestampButtonEnabled;
@@ -141,7 +91,7 @@ public partial class MainWindow : Window
     private async void CopyTimeButton_Click(object? sender, RoutedEventArgs e)
     {
         var text = TimestampService.Now(Config.TimestampFormat);
-        var clipboard = GetTopLevel(this)?.Clipboard;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard is null)
         {
             SetStatus("The clipboard is not available.");
@@ -159,23 +109,11 @@ public partial class MainWindow : Window
         }
     }
 
-    private void SettingsButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowSettings();
-
-    protected override void OnClosing(WindowClosingEventArgs e)
-    {
-        if (!App.IsExiting)
-        {
-            e.Cancel = true;
-            Hide();
-        }
-        base.OnClosing(e);
-    }
-
     private void RefreshTiles()
     {
         TileHost.Children.Clear();
         EmptyHint.IsVisible = Config.Scripts.Count == 0;
-        Chat.SetContextLabel($"Dashboard: {Config.Scripts.Count} " + (Config.Scripts.Count == 1 ? "script" : "scripts"));
+        _chatProfile?.SetLabel($"Apps: {Config.Scripts.Count} " + (Config.Scripts.Count == 1 ? "script" : "scripts"));
         foreach (var item in Config.Scripts)
             TileHost.Children.Add(BuildTile(item));
     }
@@ -296,7 +234,7 @@ public partial class MainWindow : Window
     private async void AddButton_Click(object? sender, RoutedEventArgs e)
     {
         var dialog = new EditScriptWindow(null);
-        var result = await dialog.ShowDialog<ScriptItem?>(this);
+        var result = await dialog.ShowDialog<ScriptItem?>(Host);
         if (result is not null)
         {
             Config.Scripts.Add(result);
@@ -307,7 +245,7 @@ public partial class MainWindow : Window
     private async Task EditItem(ScriptItem item)
     {
         var dialog = new EditScriptWindow(item);
-        var result = await dialog.ShowDialog<ScriptItem?>(this);
+        var result = await dialog.ShowDialog<ScriptItem?>(Host);
         if (result is not null)
         {
             var index = Config.Scripts.FindIndex(s => s.Id == item.Id);
@@ -335,23 +273,16 @@ public partial class MainWindow : Window
             Config.Scripts.Add(added);
             SaveAndRefresh($"Added “{added.Name}” from running processes.");
         });
-        await scan.ShowDialog(this);
+        await scan.ShowDialog(Host);
     }
 
     private async void AiScriptButton_Click(object? sender, RoutedEventArgs e)
     {
-        var result = await new AiScriptWindow().ShowDialog<ScriptItem?>(this);
+        var result = await new AiScriptWindow().ShowDialog<ScriptItem?>(Host);
         if (result is null) return;
         Config.Scripts.Add(result);
         SaveAndRefresh($"Added “{result.Name}” ({result.ScriptPath}).");
     }
-
-    private void AskAiButton_Click(object? sender, RoutedEventArgs e) => _dock.Toggle();
-
-    private void ApplyAskAiTip()
-        => ToolTip.SetTip(AskAiButton, "Chat with the AI beside the dashboard (Ctrl+J)" +
-                                       (string.IsNullOrWhiteSpace(Config.AiHotkey) || AppRef.HotkeyError is not null
-                                           ? "" : $" — from any app: {Config.AiHotkey}"));
 
     /// <summary>Shows what a script does (and anything risky) before it is run, by sending its source to the AI.</summary>
     private async Task ExplainItem(ScriptItem item)
@@ -385,20 +316,12 @@ public partial class MainWindow : Window
 
         var interpreter = item.Interpreter == "custom" ? item.CustomCommand : item.Interpreter;
         var prompt = AiPrompts.ExplainScript(item.ScriptPath, interpreter, item.Arguments, content, truncated);
-        _dock.Show(true);
-        if (!Chat.RunRequest($"What “{item.Name}” does", ct => AiService.AskAsync(prompt, ct),
+        Shell.ShowChat(true);
+        if (!Chat.RunRequest($"What “{item.Name}” does", (ct, partial) => AiService.AskStreamAsync(prompt, partial, ct),
                 new[] { ("note", "Save as note") },
                 (_, text) => Task.FromResult(SaveAnswerAsNote($"Script: {item.Name}", "#script #ai", text, $"`{item.ScriptPath}`"))))
             SetStatus("The AI chat is still waiting for an answer — try again in a moment.");
     }
-
-    private void NoteButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowNotes(newNote: true);
-
-    private void TimersButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowTimers();
-
-    private void WorkLogButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowWorkLog();
-
-    private void HideButton_Click(object? sender, RoutedEventArgs e) => Hide();
 
     private void OpenFolder(ScriptItem item)
     {

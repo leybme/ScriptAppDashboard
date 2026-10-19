@@ -93,14 +93,9 @@ public static class AiService
         }
     }
 
-    /// <summary>Runs the AI command with the prompt on stdin. <paramref name="command"/> overrides the one in Settings.</summary>
-    public static async Task<AiResult> AskAsync(string prompt, CancellationToken cancel = default,
-        string? command = null, TimeSpan? timeout = null)
+    /// <summary>How to start a command line through the platform shell, with redirected pipes, in the empty work folder.</summary>
+    private static ProcessStartInfo StartInfoFor(string commandLine)
     {
-        var watch = Stopwatch.StartNew();
-        if (Provider == "kiro" && string.IsNullOrWhiteSpace(command))
-            return new AiResult(false, "Kiro isn't supported yet — choose Claude in Settings → AI.", watch.Elapsed);
-        var commandLine = string.IsNullOrWhiteSpace(command) ? Command : command.Trim();
         var psi = new ProcessStartInfo
         {
             UseShellExecute = false,
@@ -112,6 +107,7 @@ public static class AiService
             StandardErrorEncoding = Encoding.UTF8,
             // without this, Vietnamese / CJK prompts reach the CLI in the console code page and come out garbled
             StandardInputEncoding = new UTF8Encoding(false),
+            WorkingDirectory = WorkDir,
         };
         if (OperatingSystem.IsWindows())
         {
@@ -124,12 +120,191 @@ public static class AiService
             psi.ArgumentList.Add("-c");
             psi.ArgumentList.Add(commandLine);
         }
+        return psi;
+    }
+
+    // ---- streaming with a warm standby ------------------------------------------------
+
+    /// <summary>The built-in command switched to streaming JSON: one user message in, text deltas out as they are written.</summary>
+    private const string StreamFlags = " --input-format stream-json --output-format stream-json --verbose --include-partial-messages";
+
+    /// <summary>An idle standby is thrown away after this long, so nothing keeps running while the app isn't used for AI.</summary>
+    private static readonly TimeSpan StandbyLife = TimeSpan.FromMinutes(4);
+
+    /// <summary>A CLI process that has already started and waits for its one question on stdin (starting it is most of the delay).</summary>
+    private sealed class Standby
+    {
+        public Process Proc = null!;
+        public string CommandLine = "";
+        public Task<string> Stderr = Task.FromResult("");
+        public Timer? Expiry;
+    }
+
+    private static Standby? _standby;
+    private static readonly object StandbyGate = new();
+
+    private static Standby? StartStandby(string commandLine)
+    {
+        try
+        {
+            var proc = Process.Start(StartInfoFor(commandLine));
+            return proc is null ? null : new Standby { Proc = proc, CommandLine = commandLine, Stderr = proc.StandardError.ReadToEndAsync() };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void Discard(Standby s)
+    {
+        lock (StandbyGate)
+            if (ReferenceEquals(_standby, s)) _standby = null;
+        s.Expiry?.Dispose();
+        try { s.Proc.Kill(entireProcessTree: true); } catch { }
+        try { s.Proc.Dispose(); } catch { }
+    }
+
+    /// <summary>
+    /// Starts the AI command in the background so the next question doesn't wait for it to boot (about 2 s saved). Call it
+    /// when the user opens a chat or starts typing; it does nothing if a standby is ready, and the standby expires by itself.
+    /// </summary>
+    public static void Warm()
+    {
+        if (Provider != "claude") return;
+        var line = Command + StreamFlags;
+        Task.Run(() =>
+        {
+            lock (StandbyGate)
+            {
+                if (_standby is { } s && s.CommandLine == line && !s.Proc.HasExited) return;
+                if (_standby is { } old) Discard(old);
+                var fresh = StartStandby(line);
+                if (fresh is null) return;
+                _standby = fresh;
+                fresh.Expiry = new Timer(_ => Discard(fresh), null, StandbyLife, Timeout.InfiniteTimeSpan);
+            }
+        });
+    }
+
+    private static Standby? Take(string commandLine)
+    {
+        lock (StandbyGate)
+        {
+            if (_standby is { } s && s.CommandLine == commandLine && !s.Proc.HasExited)
+            {
+                _standby = null;
+                s.Expiry?.Dispose();
+                return s;
+            }
+        }
+        return StartStandby(commandLine);
+    }
+
+    /// <summary>
+    /// Like <see cref="AskAsync"/>, but <paramref name="onText"/> gets the answer so far each time more of it arrives (from a worker thread).
+    /// Streams only with the built-in Claude command; a custom command runs as before and delivers the whole answer at the end.
+    /// </summary>
+    public static async Task<AiResult> AskStreamAsync(string prompt, Action<string>? onText, CancellationToken cancel = default,
+        string? command = null, TimeSpan? timeout = null)
+    {
+        if (!string.IsNullOrWhiteSpace(command) || Provider != "claude")
+        {
+            var whole = await AskAsync(prompt, cancel, command, timeout);
+            if (whole.Ok) onText?.Invoke(whole.Text);
+            return whole;
+        }
+
+        var watch = Stopwatch.StartNew();
+        var commandLine = Command + StreamFlags;
+        var standby = Take(commandLine);
+        if (standby is null) return new AiResult(false, $"Could not start “{Command}”.", watch.Elapsed);
+
+        using var proc = standby.Proc;
+        try
+        {
+            var message = JsonSerializer.Serialize(new { type = "user", message = new { role = "user", content = prompt } });
+            await proc.StandardInput.WriteLineAsync(message);
+            await proc.StandardInput.FlushAsync();
+            proc.StandardInput.Close();
+        }
+        catch (IOException)
+        {
+            // the command exited without reading its input; its error output says why
+        }
+
+        var max = timeout ?? TimeSpan.FromMinutes(5);
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancel);
+        limit.CancelAfter(max);
+        using var killer = limit.Token.Register(() => { try { proc.Kill(entireProcessTree: true); } catch { } });
+
+        var text = new StringBuilder();
+        string? final = null;
+        var failed = false;
+        try
+        {
+            string? line;
+            while ((line = await proc.StandardOutput.ReadLineAsync(limit.Token)) is not null)
+            {
+                if (line.Length == 0 || line[0] != '{') continue;
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    var root = doc.RootElement;
+                    var type = Str(root, "type");
+                    if (type == "stream_event" && root.TryGetProperty("event", out var ev) && Str(ev, "type") == "content_block_delta"
+                        && ev.TryGetProperty("delta", out var delta) && Str(delta, "type") == "text_delta")
+                    {
+                        text.Append(Str(delta, "text"));
+                        onText?.Invoke(text.ToString());
+                    }
+                    else if (type == "result")
+                    {
+                        final = Str(root, "result");
+                        failed = root.TryGetProperty("is_error", out var isError) && isError.ValueKind == JsonValueKind.True;
+                    }
+                }
+                catch (JsonException)
+                {
+                    // not an event line
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // handled below
+        }
+        if (limit.IsCancellationRequested)
+            return new AiResult(false, cancel.IsCancellationRequested ? "Stopped." : $"No answer after {max.TotalMinutes:0} min — gave up.", watch.Elapsed);
+
+        try { await proc.WaitForExitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)); } catch { }
+        var error = (await standby.Stderr.WaitAsync(TimeSpan.FromSeconds(2)).ContinueWith(t => t.IsCompletedSuccessfully ? t.Result : "")).Trim();
+        var answer = (string.IsNullOrEmpty(final) ? text.ToString() : final).Trim();
+        var exitCode = proc.HasExited ? proc.ExitCode : 0;
+        if (exitCode == 9009 || exitCode == 127 || error.Contains("is not recognized as an internal or external command"))
+            return new AiResult(false,
+                $"“{Command}” was not found. Install Claude Code (npm install -g @anthropic-ai/claude-code), " +
+                "sign in once by running “claude” in a terminal, or set another AI command in Settings → AI.", watch.Elapsed);
+        if (failed || (exitCode != 0 && answer.Length == 0))
+            return new AiResult(false, (answer.Length > 0 ? answer : error.Length > 0 ? error : $"(exit code {exitCode})"), watch.Elapsed);
+        if (answer.Length == 0)
+            return new AiResult(false, error.Length > 0 ? error : "The AI command printed nothing.", watch.Elapsed);
+        return new AiResult(true, answer, watch.Elapsed);
+    }
+
+    /// <summary>Runs the AI command with the prompt on stdin. <paramref name="command"/> overrides the one in Settings.</summary>
+    public static async Task<AiResult> AskAsync(string prompt, CancellationToken cancel = default,
+        string? command = null, TimeSpan? timeout = null)
+    {
+        var watch = Stopwatch.StartNew();
+        if (Provider == "kiro" && string.IsNullOrWhiteSpace(command))
+            return new AiResult(false, "Kiro isn't supported yet — choose Claude in Settings → AI.", watch.Elapsed);
+        var commandLine = string.IsNullOrWhiteSpace(command) ? Command : command.Trim();
 
         Process? proc;
         try
         {
-            psi.WorkingDirectory = WorkDir;
-            proc = Process.Start(psi);
+            proc = Process.Start(StartInfoFor(commandLine));
         }
         catch (Exception ex)
         {

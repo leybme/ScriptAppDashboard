@@ -12,48 +12,50 @@ using ScriptAppDashboard.Services;
 
 namespace ScriptAppDashboard.Views;
 
-public partial class WorkLogWindow : Window
+public partial class WorkLogView : ShellTab
 {
     private App AppRef => (App)Application.Current!;
     private WorkLogService.Summary? _summary;
     private bool _loading = true;
 
-    public WorkLogWindow()
+    public WorkLogView()
     {
         InitializeComponent();
         EnabledCheck.IsChecked = AppRef.Config.WorkLogEnabled;
         EnabledCheck.IsCheckedChanged += EnabledCheck_Changed;
-        WorkHoursCheck.IsCheckedChanged += async (_, _) => { if (IsLoaded) await RefreshAsync(); };
+        WorkHoursCheck.IsCheckedChanged += async (_, _) => { if (_ready) await RefreshAsync(); };
         ApplyWorkHoursTip();
         AppRef.SettingsChanged += OnSettingsChanged;
-        Closed += (_, _) => AppRef.SettingsChanged -= OnSettingsChanged;
         _loading = false;
-        _dock = new AiPanelDock(this, Chat);
-        Chat.UseGeneral("Ask about this period… (Enter sends, Shift+Enter is a new line)",
-            "Ask about the time on screen, or press Report / Timesheet:\n\n• “What took most of my time?”\n• “Which of this was not work?”\n• “How long did I spend in the browser?”",
-            "Send this period", "The AI reads the summary and timeline of the range on screen. Untick to chat without sharing it.");
-        Chat.GetContext = ChatContext;
-        Chat.AnswerActions = new[] { ("note", "Save as note") };
-        Chat.OnAnswerAction = (_, text) => Task.FromResult(SaveAnswer("Work log " + RangeText(_summary), "#worklog #ai", text));
-        Chat.SetQuickActions(
-            ("Report", "Standup-style report of this period, which you can save as a note", () => AskAi(timesheet: false)),
-            ("Timesheet", "Group this period into projects / tasks with hours, as a table", () => AskAi(timesheet: true)),
-            ("Distractions?", "Ask which apps or windows took time without being work", () => _ = Chat.Ask("Which apps or windows took the most time, and which of them look like distractions?")));
-        Loaded += async (_, _) => await RefreshAsync();
+        _chatProfile = new AiChatProfile
+        {
+            Watermark = "Ask about this period… (Enter sends, Shift+Enter is a new line)",
+            EmptyHint = "Ask about the time on screen, or press Report / Timesheet:\n\n• “What took most of my time?”\n• “Which of this was not work?”\n• “How long did I spend in the browser?”",
+            ShareText = "Send this period",
+            ShareTip = "The AI reads the summary and timeline of the range on screen. Untick to chat without sharing it.",
+            GetContext = ChatContext,
+            AnswerActions = new[] { ("note", "Save as note") },
+            OnAnswerAction = (_, text) => Task.FromResult(SaveAnswer("Work log " + RangeText(_summary), "#worklog #ai", text)),
+            Quick = new (string, string, Action)[]
+            {
+                ("Report", "Standup-style report of this period, which you can save as a note", () => AskAi(timesheet: false)),
+                ("Timesheet", "Group this period into projects / tasks with hours, as a table", () => AskAi(timesheet: true)),
+                ("Distractions?", "Ask which apps or windows took time without being work", () => _ = Chat.Ask("Which apps or windows took the most time, and which of them look like distractions?")),
+            },
+        };
+        _chatProfile.SetLabel("Work log");
     }
 
-    private readonly AiPanelDock _dock;
+    private readonly AiChatProfile _chatProfile;
+    private bool _ready;
 
-    private void Chat_Click(object? sender, RoutedEventArgs e) => _dock.Toggle();
+    public override AiChatProfile? ChatProfile => _chatProfile;
 
-    protected override void OnKeyDown(Avalonia.Input.KeyEventArgs e)
+    /// <summary>The tab came to the front: read the log again (it grows while the tab is away).</summary>
+    public override void OnShown()
     {
-        if (e.KeyModifiers == Avalonia.Input.KeyModifiers.Control && e.Key == Avalonia.Input.Key.J)
-        {
-            _dock.Toggle();
-            e.Handled = true;
-        }
-        base.OnKeyDown(e);
+        _ready = true;
+        _ = RefreshAsync();
     }
 
     private static string RangeText(WorkLogService.Summary? s)
@@ -101,7 +103,7 @@ public partial class WorkLogWindow : Window
 
     private async void Range_Changed(object? sender, SelectionChangedEventArgs e)
     {
-        if (!IsLoaded) return;
+        if (!_ready) return;
         await RefreshAsync();
     }
 
@@ -110,7 +112,7 @@ public partial class WorkLogWindow : Window
     private async void Copy_Click(object? sender, RoutedEventArgs e)
     {
         if (_summary is null) return;
-        var clipboard = GetTopLevel(this)?.Clipboard;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard is null) return;
         await clipboard.SetTextAsync(WorkLogService.ToMarkdown(_summary));
         InfoText.Text = "Summary copied — paste it into an AI chat or a note for analysis.";
@@ -130,11 +132,11 @@ public partial class WorkLogWindow : Window
             return;
         }
         var heading = (timesheet ? "Timesheet " : "Work report ") + RangeText(s);
-        _dock.Show(true);
-        Chat.RunRequest(heading, ct => Task.Run(() =>
+        Shell.ShowChat(true);
+        Chat.RunRequest(heading, (ct, partial) => Task.Run(() =>
             {
                 var context = AiContext(s);
-                return AiService.AskAsync(timesheet ? AiPrompts.Timesheet(context) : AiPrompts.WorkReport(context), ct);
+                return AiService.AskStreamAsync(timesheet ? AiPrompts.Timesheet(context) : AiPrompts.WorkReport(context), partial, ct);
             }, ct),
             new[] { ("note", "Save as note") },
             (_, text) => Task.FromResult(SaveAnswer(heading, timesheet ? "#timesheet #ai" : "#report #ai", text)));
@@ -170,7 +172,7 @@ public partial class WorkLogWindow : Window
         _summary = await Task.Run(() => WorkLogService.Summarize(from, today, hours));
         ReportHost.Children.Clear(); // a second refresh may have started while this one was reading
         var s = _summary;
-        Chat.SetContextLabel("Work log: " + RangeText(s));
+        _chatProfile.SetLabel("Work log: " + RangeText(s));
 
         if (s.Apps.Count == 0 && s.Launches.Count == 0 && s.TimerRuns.Count == 0 && s.Notes.Count == 0)
         {

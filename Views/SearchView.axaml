@@ -1,11 +1,7 @@
-<Window xmlns="https://github.com/avaloniaui"
+<views:ShellTab xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="ScriptAppDashboard.Views.SearchWindow"
-        Title="Search"
-        Width="760" Height="600"
-        MinWidth="520" MinHeight="380"
-        Icon="/Assets/icon.png"
-        WindowStartupLocation="CenterScreen">
+        xmlns:views="using:ScriptAppDashboard.Views"
+        x:Class="ScriptAppDashboard.Views.SearchView">
   <DockPanel Margin="16">
     <DockPanel DockPanel.Dock="Top">
       <ComboBox x:Name="RangeCombo" DockPanel.Dock="Right" SelectedIndex="1" MinWidth="140" Margin="8,0,0,0"
@@ -24,4 +20,4 @@
       <StackPanel x:Name="ResultHost" Spacing="2"/>
     </ScrollViewer>
   </DockPanel>
-</Window>
+</views:ShellTab>

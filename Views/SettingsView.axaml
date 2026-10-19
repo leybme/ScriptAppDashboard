@@ -1,11 +1,7 @@
-<Window xmlns="https://github.com/avaloniaui"
+<views:ShellTab xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="ScriptAppDashboard.Views.SettingsWindow"
-        Title="Settings"
-        Width="620" Height="520"
-        MinWidth="520" MinHeight="420"
-        Icon="/Assets/icon.png"
-        WindowStartupLocation="CenterScreen">
+        xmlns:views="using:ScriptAppDashboard.Views"
+        x:Class="ScriptAppDashboard.Views.SettingsView">
   <DockPanel Margin="16">
     <DockPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
       <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
@@ -168,4 +164,4 @@
       </TabItem>
     </TabControl>
   </DockPanel>
-</Window>
+</views:ShellTab>

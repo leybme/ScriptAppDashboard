@@ -67,51 +67,38 @@ public partial class App : Application
         RefreshTrayMenu();
     }
 
-    public void ShowMainWindow()
+    /// <summary>Shows the main window (on the given tab, or as it was) and brings it to the front.</summary>
+    public void ShowMainWindow(string? tab = null)
     {
         if (_mainWindow is null)
         {
             _mainWindow = new Views.MainWindow();
             _mainWindow.Closed += (_, _) => _mainWindow = null;
         }
+        var wasHidden = !_mainWindow.IsVisible;
         _mainWindow.Show();
         if (_mainWindow.WindowState == WindowState.Minimized)
             _mainWindow.WindowState = WindowState.Normal;
         _mainWindow.Activate();
+        if (tab is not null) _mainWindow.ShowTab(tab);
+        else if (wasHidden) _mainWindow.Revealed();
     }
-
-    private Views.NotesWindow? _notesWindow;
-    private Views.TimersWindow? _timersWindow;
-    private Views.WorkLogWindow? _workLogWindow;
 
     public void ShowNotes(bool newNote = false, bool openChat = false)
     {
-        if (_notesWindow is null)
-        {
-            _notesWindow = new Views.NotesWindow();
-            _notesWindow.Closed += (_, _) => _notesWindow = null;
-        }
-        _notesWindow.Show();
-        if (_notesWindow.WindowState == WindowState.Minimized) _notesWindow.WindowState = WindowState.Normal;
-        _notesWindow.Activate();
-        if (newNote) _notesWindow.NewNote();
-        if (openChat) _notesWindow.OpenChat();
+        ShowMainWindow("notes");
+        if (newNote) _mainWindow!.Tab<Views.NotesView>("notes").NewNote();
+        if (openChat) _mainWindow!.ShowChat(true);
     }
 
-    public void ShowTimers()
+    /// <summary>Opens the AI chat beside the tab in front (the "Ask AI" hotkey and tray entry).</summary>
+    public void ShowAskAi()
     {
-        if (_timersWindow is null)
-        {
-            _timersWindow = new Views.TimersWindow();
-            _timersWindow.Closed += (_, _) => _timersWindow = null;
-        }
-        _timersWindow.Show();
-        if (_timersWindow.WindowState == WindowState.Minimized) _timersWindow.WindowState = WindowState.Normal;
-        _timersWindow.Activate();
+        ShowMainWindow();
+        _mainWindow!.ShowChat(true);
     }
 
-    private Views.SettingsWindow? _settingsWindow;
-
+    public void ShowTimers() => ShowMainWindow("timers");
     /// <summary>Raised after the settings window saved, so open windows can refresh.</summary>
     public event Action? SettingsChanged;
 
@@ -126,52 +113,18 @@ public partial class App : Application
             : until.Date == DateTime.Today ? $"Paused until {until:HH:mm}"
             : $"Paused until {until:ddd HH:mm}";
 
-    private Views.SearchWindow? _searchWindow;
+    public void ShowSearch() => ShowMainWindow("search");
 
-    public void ShowSearch()
-    {
-        if (_searchWindow is null)
-        {
-            _searchWindow = new Views.SearchWindow();
-            _searchWindow.Closed += (_, _) => _searchWindow = null;
-        }
-        _searchWindow.Show();
-        if (_searchWindow.WindowState == WindowState.Minimized) _searchWindow.WindowState = WindowState.Normal;
-        _searchWindow.Activate();
-        _searchWindow.FocusSearch();
-    }
-
-    /// <summary>Opens the notes window on a given note.</summary>
+    /// <summary>Opens the notes tab on a given note.</summary>
     public void ShowNote(Guid id)
     {
-        ShowNotes();
-        _notesWindow?.SelectNote(id);
+        ShowMainWindow("notes");
+        _mainWindow!.Tab<Views.NotesView>("notes").SelectNote(id);
     }
 
-    public void ShowSettings()
-    {
-        if (_settingsWindow is null)
-        {
-            _settingsWindow = new Views.SettingsWindow();
-            _settingsWindow.Closed += (_, _) => _settingsWindow = null;
-        }
-        _settingsWindow.Show();
-        if (_settingsWindow.WindowState == WindowState.Minimized) _settingsWindow.WindowState = WindowState.Normal;
-        _settingsWindow.Activate();
-    }
+    public void ShowSettings() => ShowMainWindow("settings");
 
-    public void ShowWorkLog()
-    {
-        if (_workLogWindow is null)
-        {
-            _workLogWindow = new Views.WorkLogWindow();
-            _workLogWindow.Closed += (_, _) => _workLogWindow = null;
-        }
-        _workLogWindow.Show();
-        if (_workLogWindow.WindowState == WindowState.Minimized) _workLogWindow.WindowState = WindowState.Normal;
-        _workLogWindow.Activate();
-    }
-
+    public void ShowWorkLog() => ShowMainWindow("worklog");
     /// <summary>Pop-up for a timer that just fired: its message, plus the output of a command / AI prompt.</summary>
     private void NotifyTimer(IntervalTimerItem timer, string output)
     {
@@ -279,22 +232,10 @@ public partial class App : Application
 
     // ---- captures ---------------------------------------------------------------------
 
-    private Views.CapturesWindow? _capturesWindow;
     private readonly Dictionary<Guid, Views.CaptureEditorWindow> _captureEditors = new();
     private bool _capturing;
 
-    public void ShowCaptures()
-    {
-        if (_capturesWindow is null)
-        {
-            _capturesWindow = new Views.CapturesWindow();
-            _capturesWindow.Closed += (_, _) => _capturesWindow = null;
-        }
-        _capturesWindow.Show();
-        if (_capturesWindow.WindowState == WindowState.Minimized) _capturesWindow.WindowState = WindowState.Normal;
-        _capturesWindow.Activate();
-        _capturesWindow.FocusSearch();
-    }
+    public void ShowCaptures() => ShowMainWindow("captures");
 
     /// <summary>Opens a saved capture in the editor (one editor per capture).</summary>
     public void ShowCapture(Guid id)
@@ -395,7 +336,7 @@ public partial class App : Application
         {
             _registeredHotkey = Config.AiHotkey;
             HotkeyError = HotkeyService.Start(0, Config.AiHotkey, () =>
-                Avalonia.Threading.Dispatcher.UIThread.Post(() => ShowNotes(openChat: true)));
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => ShowAskAi()));
             changed = true;
         }
         if (_registeredCaptureHotkey != Config.CaptureHotkey)
@@ -429,7 +370,7 @@ public partial class App : Application
     public void AddNote(NoteItem note)
     {
         NotesService.Save(note);
-        _notesWindow?.AddNote(note);
+        _mainWindow?.ExistingTab<Views.NotesView>("notes")?.AddNote(note);
         WorkLogService.LogNote(note);
     }
 
@@ -437,9 +378,9 @@ public partial class App : Application
     /// <param name="untitled">The title the note was saved with (taken from its first words).</param>
     public void ApplyAiTitle(Guid id, string untitled, string title, IReadOnlyList<string> tags)
     {
-        if (_notesWindow is not null)
+        if (_mainWindow?.ExistingTab<Views.NotesView>("notes") is { } notesTab)
         {
-            _notesWindow.ApplyAiTitle(id, untitled, title, tags);
+            notesTab.ApplyAiTitle(id, untitled, title, tags);
             return;
         }
         try
@@ -529,6 +470,7 @@ public partial class App : Application
 
     public void ExitApp()
     {
+        _mainWindow?.FlushTabs();
         WorkLogService.Stop();
         TimerService.Stop();
         HotkeyService.Stop();
@@ -566,7 +508,7 @@ public partial class App : Application
         menu.Add(newNote);
         var ask = new NativeMenuItem(string.IsNullOrWhiteSpace(Config.AiHotkey) || HotkeyError is not null
             ? "Ask AI…" : $"Ask AI…  ({Config.AiHotkey})");
-        ask.Click += (_, _) => ShowNotes(openChat: true);
+        ask.Click += (_, _) => ShowAskAi();
         menu.Add(ask);
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
         {

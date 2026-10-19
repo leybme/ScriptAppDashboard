@@ -1,25 +1,11 @@
-<Window xmlns="https://github.com/avaloniaui"
+<views:ShellTab xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:materialIcons="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
         xmlns:views="using:ScriptAppDashboard.Views"
-        x:Class="ScriptAppDashboard.Views.MainWindow"
-        Title="Toolshed360"
-        Width="780" Height="540"
-        MinWidth="420" MinHeight="300"
-        Icon="/Assets/icon.png"
-        WindowStartupLocation="CenterScreen">
+        x:Class="ScriptAppDashboard.Views.AppsView">
   <DockPanel>
     <Border DockPanel.Dock="Top" Padding="14,10" Background="#18808080">
       <DockPanel>
-        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-          <Button AutomationProperties.Name="Settings" Click="SettingsButton_Click" ToolTip.Tip="Settings">
-            <StackPanel Orientation="Horizontal" Spacing="6">
-              <materialIcons:MaterialIcon Kind="CogOutline" Width="16" Height="16"/>
-              <TextBlock Text="Settings" VerticalAlignment="Center"/>
-            </StackPanel>
-          </Button>
-          <Button Content="Hide to Tray" Click="HideButton_Click"/>
-        </StackPanel>
         <WrapPanel VerticalAlignment="Center">
           <Button AutomationProperties.Name="Add Script" Classes="accent" Margin="0,2,8,2" Click="AddButton_Click"
                   ToolTip.Tip="Add a script or program tile">
@@ -42,45 +28,6 @@
               <TextBlock Text="AI Script" VerticalAlignment="Center"/>
             </StackPanel>
           </Button>
-          <Border Width="1" Height="24" Margin="2,0,10,0" Background="#40808080"/>
-          <Button AutomationProperties.Name="Notes" Margin="0,2,8,2" Click="NoteButton_Click" ToolTip.Tip="Write a quick note — rich text, searchable later">
-            <StackPanel Orientation="Horizontal" Spacing="6">
-              <materialIcons:MaterialIcon Kind="NoteEditOutline" Width="16" Height="16"/>
-              <TextBlock Text="Notes" VerticalAlignment="Center"/>
-            </StackPanel>
-          </Button>
-          <Button AutomationProperties.Name="Timers" Margin="0,2,8,2" Click="TimersButton_Click" ToolTip.Tip="Interval timers: beep, run a command or ask an AI CLI">
-            <StackPanel Orientation="Horizontal" Spacing="6">
-              <materialIcons:MaterialIcon Kind="TimerOutline" Width="16" Height="16"/>
-              <TextBlock Text="Timers" VerticalAlignment="Center"/>
-            </StackPanel>
-          </Button>
-          <Button AutomationProperties.Name="Work Log" Margin="0,2,8,2" Click="WorkLogButton_Click" ToolTip.Tip="See where your time went (apps, tabs, scripts)">
-            <StackPanel Orientation="Horizontal" Spacing="6">
-              <materialIcons:MaterialIcon Kind="ChartBar" Width="16" Height="16"/>
-              <TextBlock Text="Work Log" VerticalAlignment="Center"/>
-            </StackPanel>
-          </Button>
-          <Button AutomationProperties.Name="Search" Margin="0,2,8,2" Click="SearchButton_Click"
-                  ToolTip.Tip="Search notes and the work log together (Ctrl+F)">
-            <StackPanel Orientation="Horizontal" Spacing="6">
-              <materialIcons:MaterialIcon Kind="Magnify" Width="16" Height="16"/>
-              <TextBlock Text="Search" VerticalAlignment="Center"/>
-            </StackPanel>
-          </Button>
-          <Button AutomationProperties.Name="Captures" Margin="0,2,8,2" Click="CapturesButton_Click"
-                  ToolTip.Tip="Screenshots with annotations — searchable by the words on them">
-            <StackPanel Orientation="Horizontal" Spacing="6">
-              <materialIcons:MaterialIcon Kind="CameraOutline" Width="16" Height="16"/>
-              <TextBlock Text="Captures" VerticalAlignment="Center"/>
-            </StackPanel>
-          </Button>
-          <Button x:Name="AskAiButton" AutomationProperties.Name="Ask AI" Margin="0,2,8,2" Click="AskAiButton_Click">
-            <StackPanel Orientation="Horizontal" Spacing="6">
-              <materialIcons:MaterialIcon Kind="RobotOutline" Width="16" Height="16"/>
-              <TextBlock Text="Ask AI" VerticalAlignment="Center"/>
-            </StackPanel>
-          </Button>
           <Button x:Name="CopyTimeButton" AutomationProperties.Name="Copy time" Margin="0,2,8,2" Click="CopyTimeButton_Click">
             <StackPanel Orientation="Horizontal" Spacing="6">
               <materialIcons:MaterialIcon Kind="ClockOutline" Width="16" Height="16"/>
@@ -93,18 +40,11 @@
 
     <Border DockPanel.Dock="Bottom" Padding="14,6">
       <DockPanel>
-        <Button x:Name="TodayButton" DockPanel.Dock="Right" Padding="8,2" FontSize="12"
-                Background="Transparent" Foreground="Gray" IsVisible="False"
-                AutomationProperties.Name="Today's active time"
-                ToolTip.Tip="Active time recorded today — click to open the work log"
-                Click="TodayButton_Click"/>
         <TextBlock x:Name="StatusText" FontSize="12" Foreground="Gray" VerticalAlignment="Center"
                    TextTrimming="CharacterEllipsis"
                    Text="Tip: click a tile to run it, right-click to edit. Closing the window hides the app to the tray."/>
       </DockPanel>
     </Border>
-
-    <views:AiChatPanel x:Name="Chat" DockPanel.Dock="Right" Width="340" Margin="0,10,12,0" IsVisible="False"/>
 
     <Panel>
       <TextBlock x:Name="EmptyHint" HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -115,4 +55,4 @@
       </ScrollViewer>
     </Panel>
   </DockPanel>
-</Window>
+</views:ShellTab>

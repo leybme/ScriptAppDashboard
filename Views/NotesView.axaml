@@ -1,13 +1,8 @@
-<Window xmlns="https://github.com/avaloniaui"
+<views:ShellTab xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="using:ScriptAppDashboard.Views"
-        x:Class="ScriptAppDashboard.Views.NotesWindow"
-        Title="Notes"
-        Width="1040" Height="620"
-        MinWidth="760" MinHeight="400"
-        Icon="/Assets/icon.png"
-        WindowStartupLocation="CenterScreen">
-  <Window.Styles>
+        x:Class="ScriptAppDashboard.Views.NotesView">
+  <views:ShellTab.Styles>
     <!-- title and tags sit on the page like a document heading -->
     <Style Selector="TextBox.doc">
       <Setter Property="Background" Value="Transparent"/>
@@ -31,8 +26,8 @@
       <Setter Property="Margin" Value="0,0,4,4"/>
       <Setter Property="Focusable" Value="False"/>
     </Style>
-  </Window.Styles>
-  <Grid ColumnDefinitions="260,*,Auto" Margin="16">
+  </views:ShellTab.Styles>
+  <Grid ColumnDefinitions="260,*" Margin="16">
     <DockPanel Grid.Column="0" Margin="0,0,12,0">
       <Button DockPanel.Dock="Top" Content="New note" Classes="accent" HorizontalAlignment="Stretch"
               HorizontalContentAlignment="Center" Click="New_Click"/>
@@ -141,6 +136,5 @@
       </Panel>
     </DockPanel>
 
-    <views:AiChatPanel x:Name="Chat" Grid.Column="2" Width="340" Margin="12,0,0,0" IsVisible="False"/>
   </Grid>
-</Window>
+</views:ShellTab>

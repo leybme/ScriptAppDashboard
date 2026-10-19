@@ -18,13 +18,13 @@ namespace ScriptAppDashboard.Views;
 
 /// <summary>All captures as a grid of thumbnails, searchable by the words written on them, their title / tags /
 /// description, the window they came from and the text found in the pictures.</summary>
-public partial class CapturesWindow : Window
+public partial class CapturesView : ShellTab
 {
     private App AppRef => (App)Application.Current!;
     private readonly DispatcherTimer _debounce = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private int _version;
 
-    public CapturesWindow()
+    public CapturesView()
     {
         InitializeComponent();
         _debounce.Tick += async (_, _) =>
@@ -35,26 +35,57 @@ public partial class CapturesWindow : Window
         QueryBox.TextChanged += (_, _) => { _debounce.Stop(); _debounce.Start(); };
         Action<Guid> changed = _ => Dispatcher.UIThread.Post(() => { _debounce.Stop(); _debounce.Start(); });
         CaptureService.Changed += changed;
-        Closed += (_, _) =>
-        {
-            _debounce.Stop();
-            CaptureService.Changed -= changed;
-        };
-        Opened += async (_, _) => await ReloadAsync();
         RegionButton.IsVisible = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
         ScreenButton.IsVisible = OperatingSystem.IsWindows();
+        _chatProfile = new AiChatProfile
+        {
+            Watermark = "Ask about your screenshots… (Enter sends, Shift+Enter is a new line)",
+            EmptyHint = "Ask about your captures:\n\n• “Find the screenshot with the error about the license”\n• “Which captures did I take of the invoice page?”\n\n" +
+                        "The AI also searches the words found in your pictures.",
+            ShareText = "Send my capture list",
+            ShareTip = "The AI sees each capture's title, tags, description and the window it came from. Untick to chat without sharing it.",
+            GetContext = () => new AiChatContext(CapturesText(), "the screenshots (captures)", null, null, AiPrompts.AppGuide),
+            AnswerActions = new[] { ("note", "Save as note") },
+            OnAnswerAction = (_, text) => Task.FromResult(SaveAnswer("Captures", "#captures #ai", text)),
+        };
+        _chatProfile.SetLabel("Captures");
+    }
+
+    private readonly AiChatProfile _chatProfile;
+
+    public override AiChatProfile? ChatProfile => _chatProfile;
+
+    public override void OnShown() => _ = ReloadAsync();
+
+    /// <summary>What the chat is told: one line per capture (the newest 80).</summary>
+    private static string CapturesText()
+    {
+        var lines = CaptureService.Load().OrderByDescending(c => c.Created).Take(80).Select(c =>
+            $"- {c.Created:yyyy-MM-dd HH:mm} “{(c.Title.Length > 0 ? c.Title : "(untitled)")}”" +
+            (c.Tags.Length > 0 ? $" {c.Tags}" : "") +
+            (c.SourceApp.Length > 0 ? $" — from {c.SourceApp}" : "") +
+            (c.Description.Length > 0 ? $" — {c.Description}" : ""));
+        return string.Join("\n", lines);
+    }
+
+    private string SaveAnswer(string title, string tags, string text)
+    {
+        var note = AiService.AnswerToNote(title, tags, text);
+        try
+        {
+            AppRef.AddNote(note);
+            return $"Saved as the note “{note.Title}”.";
+        }
+        catch (Exception ex)
+        {
+            return "Could not save the note: " + ex.Message;
+        }
     }
 
     public void FocusSearch()
     {
         QueryBox.Focus();
         QueryBox.SelectAll();
-    }
-
-    protected override void OnKeyDown(KeyEventArgs e)
-    {
-        if (e.Key == Key.Escape) { Close(); e.Handled = true; }
-        base.OnKeyDown(e);
     }
 
     private async Task ReloadAsync()

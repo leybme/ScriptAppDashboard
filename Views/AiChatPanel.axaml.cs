@@ -26,9 +26,10 @@ public sealed record AiChatContext(string Html, string Title, string? SelectionT
 public sealed record AiChatOutcome(bool Ok, string Message, string? Before = null, string? After = null);
 
 /// <summary>
-/// The AI chat beside a note. The AI answers questions, or proposes changes to the note as edit commands that are
-/// shown first and applied only when the user presses Apply (Undo puts the note back). Each note has its own
-/// conversation, kept until the notes window closes. The host (<see cref="NotesWindow"/>) supplies the note and applies results.
+/// The AI chat panel of the shell, shared by every tab: the active tab hands it an <see cref="AiChatProfile"/>
+/// (<see cref="Use"/>). The AI answers questions; on the notes tab it also proposes changes to the note as edit commands
+/// that are shown first and applied only when the user presses Apply (Undo puts the note back). Each note, and each other
+/// tab, has its own conversation, kept until the app closes; several conversations can wait for an answer at the same time.
 /// </summary>
 public partial class AiChatPanel : UserControl
 {
@@ -48,65 +49,62 @@ public partial class AiChatPanel : UserControl
         public bool Applied;
         public string? Before, After;
         public CancellationTokenSource? Cancel;
+        // while waiting: when it started, the answer so far, and the two text blocks that show them
+        public DateTime Started = DateTime.Now;
+        public string Partial = "";
+        public TextBlock? StatusBlock, PartialBlock;
         // a ready-made request from the AI menu: its own buttons, and what each one does with the answer
         public (string Action, string Label)[]? Buttons;
         public Func<string, string, Task<string>>? OnChoice;
     }
 
     private readonly Dictionary<Guid, List<Turn>> _chats = new();
-    private Guid _noteId = Guid.Empty;
-    private Turn? _running;
+    private Guid _noteId = Guid.Empty; // key of the conversation on screen
+    private AiChatProfile _profile = new();
 
     private List<Turn> Turns => _chats.TryGetValue(_noteId, out var list) ? list : _chats[_noteId] = new List<Turn>();
 
-    /// <summary>The note on screen and the selection last captured in it.</summary>
-    public Func<AiChatContext>? GetContext { get; set; }
+    /// <summary>The question the conversation on screen is waiting for, if any.</summary>
+    private Turn? Running => Turns.FirstOrDefault(t => t.State == State.Pending);
 
-    /// <summary>Applies edit commands to the note if it is still as it was (the HTML passed in).</summary>
-    public Func<string, List<NoteDocument.NoteEdit>, AiChatOutcome>? ApplyEdits { get; set; }
+    private bool NoteMode => _profile.NoteMode;
 
-    /// <summary>Puts a note back to <c>before</c> if it is still as <c>after</c>.</summary>
-    public Func<string, string, AiChatOutcome>? Undo { get; set; }
-
-    /// <summary>Adds an answer to the note: target "insert" (below the selection token, or at the end), "selection" or "new". Returns a message.</summary>
-    public Func<string, string, object?, string>? Insert { get; set; }
-
-    /// <summary>True in the notes window: the AI reads the note and may propose edits. Off elsewhere: the AI only answers (see <see cref="UseGeneral"/>).</summary>
-    public bool NoteMode { get; private set; } = true;
-
-    private string _emptyHint = "Ask a question about this note, or tell the AI what to change:\n\n"
-                                + "• “Summarise this in three bullets”\n• “Turn the list into a table”\n• “Make a chart from the numbers”\n• “Translate it to English”\n\n"
-                                + "A change is shown first. Nothing happens to the note until you press Apply.";
-
-    /// <summary>Buttons under an answer outside the notes window (action, label); <see cref="OnAnswerAction"/> handles a press and returns a status message.</summary>
-    public (string Action, string Label)[]? AnswerActions { get; set; }
-
-    public Func<string, string, Task<string>>? OnAnswerAction { get; set; }
-
-    /// <summary>Sets the panel up for a window that is not the notes editor: answers only, no note edits.</summary>
-    public void UseGeneral(string watermark, string emptyHint, string shareText, string shareTip)
+    /// <summary>Makes the panel work for the tab in front: its texts, quick buttons, context and conversation.</summary>
+    public void Use(AiChatProfile profile)
     {
-        NoteMode = false;
-        _emptyHint = emptyHint;
-        InputBox.Watermark = watermark;
-        NoteCheck.Content = shareText;
-        ToolTip.SetTip(NoteCheck, shareTip);
+        if (!ReferenceEquals(profile, _profile))
+        {
+            _profile.Panel = null;
+            _profile = profile;
+            profile.Panel = this;
+            StatusText.Text = "";
+            SetSelectionPreview(null);
+        }
+        _noteId = profile.Key;
+        InputBox.Watermark = profile.Watermark;
+        NoteCheck.Content = profile.ShareText;
+        ToolTip.SetTip(NoteCheck, profile.ShareTip);
+        SetContextLabel(profile.ContextLabel);
+        QuickActions.Children.Clear();
+        foreach (var (label, tip, click) in profile.Quick) QuickActions.Children.Add(SmallButton(label, tip, click));
+        QuickActions.IsVisible = profile.Quick.Length > 0;
+        UpdateBusy();
         Render();
     }
 
-    /// <summary>The small line under the title that says what the AI is looking at, e.g. "Work log: Today".</summary>
-    public void SetContextLabel(string? text)
+    internal void KeyChanged(AiChatProfile profile)
+    {
+        if (!ReferenceEquals(profile, _profile) || _noteId == profile.Key) return;
+        _noteId = profile.Key;
+        StatusText.Text = "";
+        UpdateBusy();
+        Render();
+    }
+
+    internal void SetContextLabel(string? text)
     {
         ContextLabel.Text = text ?? "";
         ContextLabel.IsVisible = !string.IsNullOrEmpty(text);
-    }
-
-    /// <summary>One-press requests above the input box; each one starts a turn of its own or fills the input.</summary>
-    public void SetQuickActions(params (string Label, string Tip, Action Click)[] actions)
-    {
-        QuickActions.Children.Clear();
-        foreach (var (label, tip, click) in actions) QuickActions.Children.Add(SmallButton(label, tip, click));
-        QuickActions.IsVisible = actions.Length > 0;
     }
 
     /// <summary>Puts text in the input box (the user finishes the sentence) and focuses it.</summary>
@@ -125,30 +123,66 @@ public partial class AiChatPanel : UserControl
     }
 
     public event Action? CloseRequested;
-    public event Action? SelectionCleared;
-
-    /// <summary>The pointer went down in the panel, before it takes the focus (and the note's text box loses its selection).</summary>
-    public event Action? Pressing;
 
     public AiChatPanel()
     {
         InitializeComponent();
-        AddHandler(PointerPressedEvent, (_, _) => Pressing?.Invoke(), RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(PointerPressedEvent, (_, _) => _profile.Pressing?.Invoke(), RoutingStrategies.Tunnel, handledEventsToo: true);
         InputBox.AddHandler(KeyDownEvent, InputBox_KeyDown, RoutingStrategies.Tunnel);
+        InputBox.GotFocus += (_, _) => WarmUp();
+        InputBox.TextChanged += (_, _) => WarmUp();
+        _heartbeat.Tick += (_, _) => Heartbeat();
+        AttachedToVisualTree += (_, _) => _heartbeat.Start();
+        DetachedFromVisualTree += (_, _) => _heartbeat.Stop();
         Render();
+    }
+
+    // ---- heartbeat: seconds counter while waiting, and a warm AI process while the chat is in use -----
+
+    private readonly DispatcherTimer _heartbeat = new() { Interval = TimeSpan.FromSeconds(1) };
+    private DateTime _lastWarm = DateTime.MinValue;
+    private int _beats;
+
+    /// <summary>Has the AI command start in the background, so the question being typed doesn't wait for it to boot.</summary>
+    private void WarmUp()
+    {
+        if ((DateTime.Now - _lastWarm).TotalSeconds < 15) return;
+        _lastWarm = DateTime.Now;
+        AiService.Warm();
+    }
+
+    private void Heartbeat()
+    {
+        foreach (var turn in Turns.Where(t => t.State == State.Pending)) ShowProgress(turn);
+        // every two minutes, while this chat is on screen in the window in use, make sure a warm process is ready
+        if (++_beats % 120 == 0 && IsEffectivelyVisible && TopLevel.GetTopLevel(this) is Window { IsActive: true })
+        {
+            _lastWarm = DateTime.MinValue;
+            WarmUp();
+        }
+    }
+
+    /// <summary>Updates the waiting line ("Asking Claude… 7 s") and the answer so far of a running turn.</summary>
+    private void ShowProgress(Turn turn)
+    {
+        var seconds = (int)(DateTime.Now - turn.Started).TotalSeconds;
+        if (turn.StatusBlock is { } status)
+            status.Text = turn.Partial.Length == 0 ? $"{AiService.Asking()} {seconds} s" : $"✍️ Writing… {seconds} s";
+        if (turn.PartialBlock is { } block && block.Text != turn.Partial)
+        {
+            block.Text = turn.Partial;
+            block.IsVisible = turn.Partial.Length > 0;
+            Scroll.ScrollToEnd();
+        }
+    }
+
+    private void OnPartial(Turn turn, string text)
+    {
+        turn.Partial = text; // read on the UI thread by the heartbeat and by ShowProgress below
+        Dispatcher.UIThread.Post(() => { if (turn.State == State.Pending) ShowProgress(turn); }, DispatcherPriority.Background);
     }
 
     // ---- notes and selection ----------------------------------------------------------------
-
-    /// <summary>Shows the conversation of another note. A question still waiting for its answer is stopped.</summary>
-    public void SetNote(Guid id)
-    {
-        if (id == _noteId) return;
-        Stop();
-        _noteId = id;
-        StatusText.Text = "";
-        Render();
-    }
 
     /// <summary>A new note got its real id when it was saved: its conversation moves with it.</summary>
     public void Adopt(Guid from, Guid to)
@@ -164,25 +198,26 @@ public partial class AiChatPanel : UserControl
         SelectionText.Text = line.Length > 0 ? "Selected: “" + line + "”" : "";
     }
 
-    /// <summary>Forgets the conversation of a note (a new, unsaved note starts with an empty one).</summary>
+    /// <summary>Forgets the conversation of a note (a new, unsaved note starts with an empty one); questions waiting in it are stopped.</summary>
     public void Forget(Guid id)
     {
-        if (!_chats.Remove(id) || id != _noteId) return;
-        Stop();
+        if (!_chats.Remove(id, out var list)) return;
+        foreach (var turn in list) turn.Cancel?.Cancel();
+        if (id != _noteId) return;
+        UpdateBusy();
         Render();
     }
 
     public void FocusInput() => InputBox.Focus();
 
-    /// <summary>Stops a question that is waiting for its answer.</summary>
+    /// <summary>Stops the questions of the conversation on screen that are waiting for their answer.</summary>
     public void Stop()
     {
-        _running?.Cancel?.Cancel();
-        _running = null;
+        foreach (var turn in Turns.Where(t => t.State == State.Pending)) turn.Cancel?.Cancel();
         UpdateBusy();
     }
 
-    private void UpdateBusy() => SendButton.Content = _running is null ? "Send" : "Stop";
+    private void UpdateBusy() => SendButton.Content = Running is null ? "Send" : "Stop";
 
     // ---- sending ----------------------------------------------------------------------------
 
@@ -199,16 +234,17 @@ public partial class AiChatPanel : UserControl
 
     private async Task SendAsync()
     {
-        if (_running is not null)
+        if (Running is not null)
         {
             Stop();
             return;
         }
         var message = (InputBox.Text ?? "").Trim();
-        if (message.Length == 0 || GetContext?.Invoke() is not { } ctx) return;
+        if (message.Length == 0 || _profile.GetContext?.Invoke() is not { } ctx) return;
 
+        var list = Turns; // the conversation this question belongs to, even if another tab is shown while it is searched
         var withNote = NoteCheck.IsChecked == true;
-        var history = Turns.Where(t => t.State is State.Answered or State.Edit).TakeLast(4)
+        var history = list.Where(t => t.State is State.Answered or State.Edit).TakeLast(4)
             .Select(t => (Cap(t.Question, 600), Cap(t.State == State.Edit ? $"(I changed the note: {t.Preface})" : t.Answer, 800)))
             .ToList();
 
@@ -220,7 +256,7 @@ public partial class AiChatPanel : UserControl
             var info = found.Length == 0 ? ctx.AppInfo
                 : ctx.AppInfo + "\n\nFound in the user's own notes and screenshots for this question (search results; answer from them and name the note or screenshot):\n" + found;
             var shared = withNote ? Cap(ctx.Html, 60000) : null;
-            await RunTurn(new Turn { Question = message }, token => AiService.AskAsync(AiPrompts.ChatAbout(history, message, ctx.Title, shared, info), token),
+            await RunTurn(list, new Turn { Question = message }, (token, partial) => AiService.AskStreamAsync(AiPrompts.ChatAbout(history, message, ctx.Title, shared, info), partial, token),
                 allowEdits: false);
             return;
         }
@@ -241,42 +277,44 @@ public partial class AiChatPanel : UserControl
         var related = await Task.Run(() => ChatRelated.Build(message, ctx.NoteId, ctx.Html));
         var appInfo = related.Length == 0 ? ctx.AppInfo
             : ctx.AppInfo + "\n\nFound in the user's own notes and screenshots for this question (search results; answer from them and name the note or screenshot):\n" + related;
-        await RunTurn(turn, token => AiService.AskAsync(AiPrompts.Chat(history, message, numbered, units?.Count ?? 0, turn.Selection, appInfo), token),
+        await RunTurn(list, turn, (token, partial) => AiService.AskStreamAsync(AiPrompts.Chat(history, message, numbered, units?.Count ?? 0, turn.Selection, appInfo), partial, token),
             allowEdits: numbered is not null);
     }
 
     /// <summary>
     /// Runs a ready-made request (an action of the AI menu: improve, shorten, summarise…) as a turn of the chat. The answer
     /// comes with <paramref name="buttons"/>; pressing one calls <paramref name="onChoice"/> with its action and the answer
-    /// and shows the message it returns. False when the chat is still waiting for an answer.
+    /// and shows the message it returns. False when this conversation is still waiting for an answer.
     /// </summary>
-    public bool RunRequest(string heading, Func<CancellationToken, Task<AiResult>> ask,
+    public bool RunRequest(string heading, Func<CancellationToken, Action<string>, Task<AiResult>> ask,
         (string Action, string Label)[] buttons, Func<string, string, Task<string>> onChoice)
     {
-        if (_running is not null)
+        if (Running is not null)
         {
             StatusText.Text = "Still waiting for the AI…";
             return false;
         }
-        _ = RunTurn(new Turn { Question = heading, Buttons = buttons, OnChoice = onChoice }, ask, allowEdits: false);
+        _ = RunTurn(Turns, new Turn { Question = heading, Buttons = buttons, OnChoice = onChoice }, ask, allowEdits: false);
         return true;
     }
 
-    private async Task RunTurn(Turn turn, Func<CancellationToken, Task<AiResult>> ask, bool allowEdits)
+    private async Task RunTurn(List<Turn> list, Turn turn, Func<CancellationToken, Action<string>, Task<AiResult>> ask, bool allowEdits)
     {
+        turn.Started = DateTime.Now;
         turn.Cancel = new CancellationTokenSource();
-        var list = Turns;
         list.Add(turn);
-        _running = turn;
         StatusText.Text = "";
-        UpdateBusy();
-        Render();
+        if (ReferenceEquals(Turns, list))
+        {
+            UpdateBusy();
+            Render();
+        }
 
         var token = turn.Cancel.Token;
-        var result = await ask(token);
+        var result = await ask(token, text => OnPartial(turn, text));
+        turn.StatusBlock = turn.PartialBlock = null;
         turn.Cancel.Dispose();
         turn.Cancel = null;
-        if (ReferenceEquals(_running, turn)) _running = null;
         turn.Seconds = result.Elapsed.TotalSeconds;
         if (token.IsCancellationRequested)
         {
@@ -305,6 +343,8 @@ public partial class AiChatPanel : UserControl
         }
         UpdateBusy();
         if (ReferenceEquals(Turns, list)) Render();
+        _lastWarm = DateTime.MinValue; // the standby was used up: have the next one ready for a follow-up
+        WarmUp();
     }
 
     // ---- drawing the conversation -----------------------------------------------------------
@@ -316,7 +356,7 @@ public partial class AiChatPanel : UserControl
         {
             Messages.Children.Add(new TextBlock
             {
-                Text = _emptyHint,
+                Text = _profile.EmptyHint,
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = Brushes.Gray,
                 FontSize = 12,
@@ -359,7 +399,11 @@ public partial class AiChatPanel : UserControl
         switch (turn.State)
         {
             case State.Pending:
-                panel.Children.Add(Note(AiService.Asking()));
+                turn.StatusBlock = Note(AiService.Asking());
+                turn.PartialBlock = new TextBlock { TextWrapping = TextWrapping.Wrap, IsVisible = false };
+                panel.Children.Add(turn.StatusBlock);
+                panel.Children.Add(turn.PartialBlock);
+                ShowProgress(turn);
                 break;
             case State.Stopped:
                 panel.Children.Add(Note("Stopped."));
@@ -401,8 +445,8 @@ public partial class AiChatPanel : UserControl
         var onChoice = turn.OnChoice;
         if (buttons is null && !NoteMode)
         {
-            buttons = AnswerActions ?? Array.Empty<(string, string)>();
-            onChoice = OnAnswerAction;
+            buttons = _profile.AnswerActions ?? Array.Empty<(string, string)>();
+            onChoice = _profile.OnAnswerAction;
         }
         if (buttons is not null)
         {
@@ -439,7 +483,7 @@ public partial class AiChatPanel : UserControl
     }
 
     private void InsertAnswer(string target, Turn turn)
-        => StatusText.Text = Insert?.Invoke(target, turn.Answer, turn.SelectionToken) ?? "";
+        => StatusText.Text = _profile.Insert?.Invoke(target, turn.Answer, turn.SelectionToken) ?? "";
 
     /// <summary>The proposed changes, one entry per command, with the new content formatted.</summary>
     private static Control Changes(Turn turn)
@@ -498,7 +542,7 @@ public partial class AiChatPanel : UserControl
 
     private void ApplyEdit(Turn turn)
     {
-        if (ApplyEdits?.Invoke(turn.Html, turn.Edits!) is not { } outcome) return;
+        if (_profile.ApplyEdits?.Invoke(turn.Html, turn.Edits!) is not { } outcome) return;
         StatusText.Text = outcome.Message;
         if (!outcome.Ok) return;
         turn.Applied = true;
@@ -509,7 +553,7 @@ public partial class AiChatPanel : UserControl
 
     private void UndoEdit(Turn turn)
     {
-        if (Undo?.Invoke(turn.Before!, turn.After!) is not { } outcome) return;
+        if (_profile.Undo?.Invoke(turn.Before!, turn.After!) is not { } outcome) return;
         StatusText.Text = outcome.Message;
         if (!outcome.Ok) return;
         turn.Applied = false;
@@ -532,6 +576,6 @@ public partial class AiChatPanel : UserControl
     private void ClearSelection_Click(object? sender, RoutedEventArgs e)
     {
         SetSelectionPreview(null);
-        SelectionCleared?.Invoke();
+        _profile.SelectionCleared?.Invoke();
     }
 }

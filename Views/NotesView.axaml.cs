@@ -13,7 +13,7 @@ using ScriptAppDashboard.Services;
 
 namespace ScriptAppDashboard.Views;
 
-public partial class NotesWindow : Window
+public partial class NotesView : ShellTab
 {
     private readonly List<NoteItem> _notes = NotesService.Load();
     private NoteItem? _current;
@@ -21,7 +21,7 @@ public partial class NotesWindow : Window
     private bool _suppress;
     private bool _codeView; // editing the HTML source instead of the visual editor
 
-    public NotesWindow()
+    public NotesView()
     {
         InitializeComponent();
         _baseline = Snapshot();
@@ -38,35 +38,54 @@ public partial class NotesWindow : Window
             else Editor.FocusStart();
         };
         _autoSave.Tick += (_, _) => { _autoSave.Stop(); if (_dirty) SaveCurrent(); };
-        Closing += (_, _) => { _autoSave.Stop(); if (_dirty) SaveCurrent(); };
         HtmlBox.AddHandler(KeyDownEvent, HtmlBox_KeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         ApplyTimeButton();
         var app =(App)Avalonia.Application.Current!;
         app.SettingsChanged += ApplyTimeButton;
         Editor.PictureError += message => StatusText.Text = message;
         Editor.SelectionAction += Editor_SelectionAction;
-        Chat.GetContext = ChatContext;
-        Chat.ApplyEdits = Chat_ApplyEdits;
-        Chat.Undo = Chat_Undo;
-        Chat.Insert = Chat_Insert;
-        Chat.Pressing += CaptureChatSelection;
-        Chat.SelectionCleared += () => _aiSelection = null;
-        Chat.CloseRequested += () => ShowChat(false);
+        _chatProfile = new AiChatProfile
+        {
+            NoteMode = true,
+            Watermark = "Ask about this note, or tell the AI what to change… (Enter sends, Shift+Enter is a new line)",
+            EmptyHint = "Ask a question about this note, or tell the AI what to change:\n\n"
+                        + "• “Summarise this in three bullets”\n• “Turn the list into a table”\n• “Make a chart from the numbers”\n• “Translate it to English”\n\n"
+                        + "A change is shown first. Nothing happens to the note until you press Apply.",
+            ShareText = "Send the note",
+            ShareTip = "The AI reads this note, and can change it (you press Apply first). Untick to chat without sharing it.",
+            GetContext = ChatContext,
+            ApplyEdits = Chat_ApplyEdits,
+            Undo = Chat_Undo,
+            Insert = Chat_Insert,
+            Pressing = CaptureChatSelection,
+            SelectionCleared = () => _aiSelection = null,
+        };
         // a new click in the note starts a new selection: what the chat captured before is out of date
         Editor.AddHandler(GotFocusEvent, (_, _) =>
         {
-            if (!Chat.IsVisible) return;
+            if (Shell is not { IsChatVisible: true }) return;
             _aiSelection = null;
             Chat.SetSelectionPreview(null);
         }, Avalonia.Interactivity.RoutingStrategies.Bubble);
         NotesService.ExternalChange += OnExternalChange;
-        Closed += (_, _) =>
-        {
-            app.SettingsChanged -= ApplyTimeButton;
-            NotesService.ExternalChange -= OnExternalChange;
-            Chat.Stop();
-        };
         RefreshList(null);
+    }
+
+    private readonly AiChatProfile _chatProfile;
+
+    public override AiChatProfile? ChatProfile => _chatProfile;
+
+    public override void OnShown()
+    {
+        _chatProfile.SetKey(_current?.Id ?? Guid.Empty);
+        _chatProfile.SetLabel(_current is null ? "New note" : "Note: " + (_current.Title.Length > 0 ? _current.Title : "(untitled)"));
+    }
+
+    /// <summary>The tab was left, or the window hides or the app quits: an edited note is saved.</summary>
+    public override void OnHidden()
+    {
+        _autoSave.Stop();
+        if (_dirty) SaveCurrent();
     }
 
     // ---- pictures and other PCs' changes ----------------------------------------------------
@@ -221,7 +240,6 @@ public partial class NotesWindow : Window
                 case Key.B: Bold_Click(null, e); e.Handled = true; break;
                 case Key.I: Italic_Click(null, e); e.Handled = true; break;
                 case Key.K: Link_Click(null, e); e.Handled = true; break;
-                case Key.J: ShowChat(!Chat.IsVisible); e.Handled = true; break;
             }
         }
         base.OnKeyDown(e);
@@ -486,8 +504,9 @@ public partial class NotesWindow : Window
         if (_codeView) HtmlBox.Text = note?.Html ?? "";
         else Editor.Load(note?.Html ?? "");
         _suppress = false;
-        if (note is null) Chat.Forget(Guid.Empty);
-        Chat.SetNote(note?.Id ?? Guid.Empty);
+        if (note is null) Shell?.Chat.Forget(Guid.Empty);
+        _chatProfile.SetKey(note?.Id ?? Guid.Empty);
+        _chatProfile.SetLabel(note is null ? "New note" : "Note: " + (note.Title.Length > 0 ? note.Title : "(untitled)"));
         _baseline = Snapshot();
         _dirty = false;
         StatusText.Text = note is null ? "New note" : $"Created {note.Created:yyyy-MM-dd HH:mm}";
@@ -519,7 +538,11 @@ public partial class NotesWindow : Window
         note.Updated = DateTime.Now;
         if (isNew) _notes.Add(note);
         _current = note;
-        if (isNew) Chat.Adopt(Guid.Empty, note.Id);
+        if (isNew)
+        {
+            Shell?.Chat.Adopt(Guid.Empty, note.Id);
+            _chatProfile.SetKey(note.Id);
+        }
 
         try
         {
@@ -640,7 +663,7 @@ public partial class NotesWindow : Window
 
     private async void CopyMarkdown_Click(object? sender, RoutedEventArgs e)
     {
-        var clipboard = GetTopLevel(this)?.Clipboard;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard is null) return;
         await clipboard.SetTextAsync(NotesService.ToMarkdown(EditorNote()));
         StatusText.Text = "Copied as Markdown.";
@@ -785,31 +808,9 @@ public partial class NotesWindow : Window
 
     // ---- AI chat beside the note ------------------------------------------------------------
 
-    private bool _chatGrew;
+    private void Chat_Click(object? sender, RoutedEventArgs e) => Shell.ToggleChat();
 
-    private void Chat_Click(object? sender, RoutedEventArgs e) => ShowChat(!Chat.IsVisible);
-
-    /// <summary>Shows or hides the chat; the window grows by the panel's width so the note keeps its room.</summary>
-    private void ShowChat(bool show)
-    {
-        if (Chat.IsVisible == show) return;
-        Chat.IsVisible = show;
-        if (show)
-        {
-            if (WindowState == WindowState.Normal)
-            {
-                Width += Chat.Width + Chat.Margin.Left;
-                _chatGrew = true;
-            }
-            Chat.SetNote(_current?.Id ?? Guid.Empty);
-            Chat.FocusInput();
-        }
-        else if (_chatGrew)
-        {
-            Width = Math.Max(MinWidth, Width - Chat.Width - Chat.Margin.Left);
-            _chatGrew = false;
-        }
-    }
+    private void ShowChat(bool show) => Shell.ShowChat(show);
 
     /// <summary>The selection in the note, taken when the pointer goes down in the chat (the note's text box then loses it).</summary>
     private void CaptureChatSelection()
@@ -988,7 +989,7 @@ public partial class NotesWindow : Window
         var selectionNow = _aiSelection;
         var htmlSelectionNow = _aiHtmlSelection;
         ShowChat(true);
-        Chat.RunRequest(heading, ct => AiService.AskAsync(prompt, ct), buttons, async (choice, text) =>
+        Chat.RunRequest(heading, (ct, partial) => AiService.AskStreamAsync(prompt, partial, ct), buttons, async (choice, text) =>
         {
             _aiSelection = selectionNow;
             _aiHtmlSelection = htmlSelectionNow;

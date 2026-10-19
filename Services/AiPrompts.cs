@@ -209,7 +209,7 @@ public static class AiPrompts
         return sb.ToString();
     }
 
-    /// <summary>What the chat knows about the app's features; the current state is added after it (see NotesWindow).</summary>
+    /// <summary>What the chat knows about the app's features; the current state is added after it (see NotesView).</summary>
     public const string AppGuide = """
         Toolshed360 is a tray app with a dashboard of the user's scripts, notes, interval timers, a work log and AI features.
         AI features (all use the AI command chosen in Settings → AI):

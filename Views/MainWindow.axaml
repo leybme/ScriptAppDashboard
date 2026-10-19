@@ -1,0 +1,35 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="using:ScriptAppDashboard.Views"
+        x:Class="ScriptAppDashboard.Views.MainWindow"
+        Title="Toolshed360"
+        Width="1200" Height="680"
+        MinWidth="900" MinHeight="460"
+        Icon="/Assets/icon.png"
+        WindowStartupLocation="CenterScreen">
+  <Grid ColumnDefinitions="*,Auto,Auto">
+    <!-- the tab in front; every tab that was opened stays here, hidden, so nothing it holds is lost -->
+    <Panel x:Name="TabHost" Grid.Column="0"/>
+
+    <!-- the tabs: one button per part of the app, between the content and the AI chat -->
+    <Border Grid.Column="1" Padding="6" Background="#18808080">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Bottom" Spacing="4">
+          <Button x:Name="TodayButton" Padding="4,4" FontSize="11" Background="Transparent" Foreground="Gray"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" IsVisible="False"
+                  AutomationProperties.Name="Today's active time"
+                  ToolTip.Tip="Active time recorded today — click to open the work log"
+                  Click="TodayButton_Click"/>
+          <ToggleButton x:Name="ChatButton" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                        AutomationProperties.Name="Ask AI" Click="ChatButton_Click"/>
+          <Button Content="Hide to Tray" FontSize="11" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                  ToolTip.Tip="Keep Toolshed360 running in the tray" Click="HideButton_Click"/>
+        </StackPanel>
+        <StackPanel x:Name="TabStrip" Spacing="4"/>
+      </DockPanel>
+    </Border>
+
+    <!-- one AI chat for the whole app; it follows the tab in front. It is open when the app starts. -->
+    <views:AiChatPanel x:Name="ChatPanel" Grid.Column="2" Width="340" Margin="8,12,12,12"/>
+  </Grid>
+</Window>

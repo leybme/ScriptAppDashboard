@@ -1,11 +1,7 @@
-<Window xmlns="https://github.com/avaloniaui"
+<views:ShellTab xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="ScriptAppDashboard.Views.CapturesWindow"
-        Title="Captures"
-        Width="980" Height="680"
-        MinWidth="520" MinHeight="360"
-        Icon="/Assets/icon.png"
-        WindowStartupLocation="CenterScreen">
+        xmlns:views="using:ScriptAppDashboard.Views"
+        x:Class="ScriptAppDashboard.Views.CapturesView">
   <DockPanel Margin="16">
     <DockPanel DockPanel.Dock="Top">
       <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" Margin="8,0,0,0">
@@ -26,4 +22,4 @@
       <WrapPanel x:Name="Cards"/>
     </ScrollViewer>
   </DockPanel>
-</Window>
+</views:ShellTab>
