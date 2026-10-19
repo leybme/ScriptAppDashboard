@@ -112,14 +112,15 @@ One search box (the Search tab, or Ctrl+F) looks through your apps, notes, scree
 
 ### Screenshots with annotations
 
-Press `Ctrl+Alt+C` anywhere (Windows; change it in **Settings → Capture**), or use **Captures** in the tray or main window. The screen freezes: drag a region, click the outlined window to take it, press `F` for everything, `Esc` to cancel. The picture opens in an editor, like Snagit:
+Press `Ctrl+Alt+C` anywhere (Windows; change it in **Settings → Capture**), or use **Captures** in the tray or main window. The screen freezes: drag a region, click the outlined window to take it, press `F` for everything, `Esc` or right-click to cancel. The picture opens in an editor, like Snagit:
 
 - **Tools**: box, ellipse, arrow, line, text, callout (a speech box pointing at an anchor), numbered step, highlight, **redact** (solid cover), **blur** (mosaic) and crop. Pick a colour, line width and text size; drag shapes to move them, drag the handles to reshape them, `Shift` keeps lines at 45° and boxes square. Undo and redo cover everything.
+- **Keys**: each tool has a letter (`V` select, `R` box, `E` ellipse, `A` arrow, `L` line, `T` text, `S` callout, `N` step, `H` highlight, `X` redact, `B` blur, `G` grab text, `C` crop; hover a tool to see it). Step, highlight, redact and blur stay on, so you can number 1, 2, 3 or black out several things in a row; `Esc` ends them. `Esc` in the text box goes back to the picture. `Ctrl+0` fits the picture, `Ctrl++` / `Ctrl+-` zoom.
 - **Words are searchable**: type text on any annotation, then add a title, tags and a description. Everything is saved automatically, and the original picture is never changed (except by crop), so annotations stay editable.
 - **Text in the picture** is read with the Windows OCR and indexed too, so you can find a screenshot by what is written in it. Turn it off in Settings → Capture.
-- **Find them again**: the **Captures** window shows a thumbnail grid with its own search, and the main search (`Ctrl+F`) lists captures with the matching words.
+- **Find them again**: the **Captures** window shows a thumbnail grid with its own search, and the main search (`Ctrl+F`) lists captures with the matching words. Right-click a thumbnail to copy or delete it without opening it.
 - **Use them**: copy the annotated picture, save it as a PNG, or make a new note holding the picture and its annotation words. You can also annotate a picture file or the picture on the clipboard.
-- **AI**: tell the AI what to do (“redact all email addresses”, “number the buttons”, “box the error message”). The AI reads text only, so it gets the OCR text with positions and the current annotations, and answers with changes; **Ctrl+Z** undoes them. **Title and tags** suggests a title, tags and a description from the text, and a capture saved without a title gets one automatically.
+- **AI**: tell the AI what to do (“redact all email addresses”, “number the buttons”, “box the error message”). The AI reads text only, so it gets the OCR text with positions and the current annotations, and answers with changes; **Ctrl+Z** undoes them. **Title and tags** suggests a title, tags and a description from the text, and a capture closed without a title gets one automatically when the AI title option in **Settings → AI** is on.
 
 ![Annotating a screenshot: boxes, arrow, steps, callout, redaction and the details panel](docs/images/screenshotCaptureEditor.png)
 

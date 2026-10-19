@@ -143,6 +143,9 @@ Notes, images and the work log live in `DataDir`: the `DataFolder` setting (e.g.
   - Text, arrow and callout labels: an arrow / line starts inside its label (centred on the tail); a callout's pointer starts at its box centre under the box.
   - Don't set `FormattedText.MaxTextWidth = 0` for "no wrap": the text disappears. Leave it unset.
   - `TextChanged` on boxes set while opening fires late: compare with the saved values before marking dirty. Tool buttons use `IsCheckedChanged` (guarded by `_syncingTools`) so UI Automation can select them.
+  - Tools are one table (`Tools`: icon, letter key, group, hint); a letter picks a tool only outside text boxes. `IsRepeatTool` (step, highlight, redact, blur) keeps the tool after a shape; the others go back to Select (`ToolDone`). An empty Text annotation is removed when it loses the selection (it would be invisible).
+  - Delete a capture with `App.DeleteCapture`: it closes the open editor through `Discard()` first, otherwise its autosave on close writes the capture back. The automatic AI title on close follows `AiAutoTitle`, like notes.
+  - The gallery ignores `CaptureService.Changed` while hidden (an open editor saves about every second) and keeps decoded thumbnails by file time.
   - The default hotkey `Ctrl+Alt+C` was chosen because `Ctrl+Alt+S` and `Ctrl+Alt+A` are taken on the author's PC; `HotkeyService` has numbered slots (0 = Ask AI, 1 = capture).
   - Test with `TOOLSHED360_DATA` on generated PNGs; a test hotkey press also reaches other screenshot tools the user runs.
 - **Pictures:** a picture on its own line is a `BlockKind.Image` block (`IsAtomic`, like a divider: the caret skips it, Backspace/Delete next to it remove it). The editor decodes at most 1600 px wide and disposes bitmaps on `Load` / row removal. Paste prefers text over a picture (Excel and browsers put both on the clipboard).
