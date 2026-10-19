@@ -31,6 +31,17 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _dock = new AiPanelDock(this, Chat);
+        Chat.UseGeneral("Ask about your scripts, or for a new one… (Enter sends, Shift+Enter is a new line)",
+            "Ask about your scripts:\n\n• “Which of my scripts touch the network?”\n• “Write a PowerShell script that cleans my Downloads folder”\n\n" +
+            "To see what one script does, right-click its tile → Explain with AI.",
+            "Send my script list", "The AI sees each tile's name, file, interpreter and arguments (not the script's code). Untick to chat without sharing it.");
+        Chat.GetContext = () => new AiChatContext(ScriptsText(), "the script dashboard", null, null, AiPrompts.AppGuide);
+        Chat.AnswerActions = new[] { ("note", "Save as note") };
+        Chat.OnAnswerAction = (_, text) => Task.FromResult(SaveAnswerAsNote("Ask AI", "#ai", text, null));
+        Chat.SetQuickActions(
+            ("Write a script…", "Describe a script and let the AI write it", () => Chat.Prefill("Write a script that ")),
+            ("Summarise my scripts", "A short overview of what the tiles do", () => _ = Chat.Ask("Give me a short overview of my scripts, grouped by purpose.")));
         RefreshTiles();
         ApplyTimestampButton();
         ApplyAskAiTip();
@@ -51,6 +62,31 @@ public partial class MainWindow : Window
     }
 
     private readonly Avalonia.Threading.DispatcherTimer _todayTimer = new() { Interval = TimeSpan.FromMinutes(1) };
+    private readonly AiPanelDock _dock;
+
+    /// <summary>What the chat is told about the dashboard: one line per tile.</summary>
+    private string ScriptsText()
+    {
+        var lines = Config.Scripts.Take(200).Select(s =>
+            $"- {s.Name}: {s.ScriptPath}" + (s.Arguments.Length > 0 ? " " + s.Arguments : "") +
+            $" ({(s.Interpreter == "custom" ? s.CustomCommand : s.Interpreter)})");
+        return string.Join("\n", lines);
+    }
+
+    /// <summary>Saves an AI answer as a note; returns the message for the chat.</summary>
+    private string SaveAnswerAsNote(string title, string tags, string text, string? intro)
+    {
+        var note = AiService.AnswerToNote(title, tags, text, intro);
+        try
+        {
+            AppRef.AddNote(note);
+            return $"Saved as the note “{note.Title}”.";
+        }
+        catch (Exception ex)
+        {
+            return "Could not save the note: " + ex.Message;
+        }
+    }
 
     /// <summary>Shows "Today 2h 14m" in the status bar (reading the log off the UI thread).</summary>
     private async void UpdateToday()
@@ -85,6 +121,11 @@ public partial class MainWindow : Window
         if (e.KeyModifiers == Avalonia.Input.KeyModifiers.Control && e.Key == Avalonia.Input.Key.F)
         {
             AppRef.ShowSearch();
+            e.Handled = true;
+        }
+        else if (e.KeyModifiers == Avalonia.Input.KeyModifiers.Control && e.Key == Avalonia.Input.Key.J)
+        {
+            _dock.Toggle();
             e.Handled = true;
         }
         base.OnKeyDown(e);
@@ -134,6 +175,7 @@ public partial class MainWindow : Window
     {
         TileHost.Children.Clear();
         EmptyHint.IsVisible = Config.Scripts.Count == 0;
+        Chat.SetContextLabel($"Dashboard: {Config.Scripts.Count} " + (Config.Scripts.Count == 1 ? "script" : "scripts"));
         foreach (var item in Config.Scripts)
             TileHost.Children.Add(BuildTile(item));
     }
@@ -304,10 +346,10 @@ public partial class MainWindow : Window
         SaveAndRefresh($"Added “{result.Name}” ({result.ScriptPath}).");
     }
 
-    private void AskAiButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowNotes(openChat: true);
+    private void AskAiButton_Click(object? sender, RoutedEventArgs e) => _dock.Toggle();
 
     private void ApplyAskAiTip()
-        => ToolTip.SetTip(AskAiButton, "Ask the AI a quick question" +
+        => ToolTip.SetTip(AskAiButton, "Chat with the AI beside the dashboard (Ctrl+J)" +
                                        (string.IsNullOrWhiteSpace(Config.AiHotkey) || AppRef.HotkeyError is not null
                                            ? "" : $" — from any app: {Config.AiHotkey}"));
 
@@ -343,19 +385,11 @@ public partial class MainWindow : Window
 
         var interpreter = item.Interpreter == "custom" ? item.CustomCommand : item.Interpreter;
         var prompt = AiPrompts.ExplainScript(item.ScriptPath, interpreter, item.Arguments, content, truncated);
-        var choice = await AiResultWindow.Show(this, $"What “{item.Name}” does", ct => AiService.AskAsync(prompt, ct),
-            ("note", "Save as note"));
-        if (choice is not { } c) return;
-        var note = AiService.AnswerToNote($"Script: {item.Name}", "#script #ai", c.Text, $"`{item.ScriptPath}`");
-        try
-        {
-            AppRef.AddNote(note);
-            SetStatus($"Saved the explanation as the note “{note.Title}”.");
-        }
-        catch (Exception ex)
-        {
-            SetStatus("Could not save the note: " + ex.Message);
-        }
+        _dock.Show(true);
+        if (!Chat.RunRequest($"What “{item.Name}” does", ct => AiService.AskAsync(prompt, ct),
+                new[] { ("note", "Save as note") },
+                (_, text) => Task.FromResult(SaveAnswerAsNote($"Script: {item.Name}", "#script #ai", text, $"`{item.ScriptPath}`"))))
+            SetStatus("The AI chat is still waiting for an answer — try again in a moment.");
     }
 
     private void NoteButton_Click(object? sender, RoutedEventArgs e) => AppRef.ShowNotes(newNote: true);

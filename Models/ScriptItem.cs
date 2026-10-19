@@ -94,6 +94,10 @@ public class IntervalTimerItem
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "";
     public double IntervalMinutes { get; set; } = 30;
+
+    /// <summary>Cron expression (minute hour day-of-month month day-of-week); when set it replaces <see cref="IntervalMinutes"/>.</summary>
+    public string Cron { get; set; } = "";
+
     public bool Enabled { get; set; } = true;
 
     /// <summary>beep | command | ai</summary>

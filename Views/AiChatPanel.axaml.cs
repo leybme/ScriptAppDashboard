@@ -16,7 +16,10 @@ using ScriptAppDashboard.Services;
 
 namespace ScriptAppDashboard.Views;
 
-/// <summary>What the chat needs to know about the note on screen when a message is sent.</summary>
+/// <summary>
+/// What the chat needs to know about the note on screen when a message is sent. In a window that is not the notes editor
+/// (<see cref="AiChatPanel.NoteMode"/> off) <c>Html</c> is the text the window shows and <c>Title</c> names what the user is looking at.
+/// </summary>
 public sealed record AiChatContext(string Html, string Title, string? SelectionText, object? SelectionToken, string AppInfo = "", Guid? NoteId = null);
 
 /// <summary>The result of applying the AI's changes to (or undoing them on) the note; Before / After are its HTML.</summary>
@@ -67,6 +70,59 @@ public partial class AiChatPanel : UserControl
 
     /// <summary>Adds an answer to the note: target "insert" (below the selection token, or at the end), "selection" or "new". Returns a message.</summary>
     public Func<string, string, object?, string>? Insert { get; set; }
+
+    /// <summary>True in the notes window: the AI reads the note and may propose edits. Off elsewhere: the AI only answers (see <see cref="UseGeneral"/>).</summary>
+    public bool NoteMode { get; private set; } = true;
+
+    private string _emptyHint = "Ask a question about this note, or tell the AI what to change:\n\n"
+                                + "• “Summarise this in three bullets”\n• “Turn the list into a table”\n• “Make a chart from the numbers”\n• “Translate it to English”\n\n"
+                                + "A change is shown first. Nothing happens to the note until you press Apply.";
+
+    /// <summary>Buttons under an answer outside the notes window (action, label); <see cref="OnAnswerAction"/> handles a press and returns a status message.</summary>
+    public (string Action, string Label)[]? AnswerActions { get; set; }
+
+    public Func<string, string, Task<string>>? OnAnswerAction { get; set; }
+
+    /// <summary>Sets the panel up for a window that is not the notes editor: answers only, no note edits.</summary>
+    public void UseGeneral(string watermark, string emptyHint, string shareText, string shareTip)
+    {
+        NoteMode = false;
+        _emptyHint = emptyHint;
+        InputBox.Watermark = watermark;
+        NoteCheck.Content = shareText;
+        ToolTip.SetTip(NoteCheck, shareTip);
+        Render();
+    }
+
+    /// <summary>The small line under the title that says what the AI is looking at, e.g. "Work log: Today".</summary>
+    public void SetContextLabel(string? text)
+    {
+        ContextLabel.Text = text ?? "";
+        ContextLabel.IsVisible = !string.IsNullOrEmpty(text);
+    }
+
+    /// <summary>One-press requests above the input box; each one starts a turn of its own or fills the input.</summary>
+    public void SetQuickActions(params (string Label, string Tip, Action Click)[] actions)
+    {
+        QuickActions.Children.Clear();
+        foreach (var (label, tip, click) in actions) QuickActions.Children.Add(SmallButton(label, tip, click));
+        QuickActions.IsVisible = actions.Length > 0;
+    }
+
+    /// <summary>Puts text in the input box (the user finishes the sentence) and focuses it.</summary>
+    public void Prefill(string text)
+    {
+        InputBox.Text = text;
+        InputBox.Focus();
+        InputBox.CaretIndex = text.Length;
+    }
+
+    /// <summary>Sends a message as if the user typed it.</summary>
+    public Task Ask(string message)
+    {
+        InputBox.Text = message;
+        return SendAsync();
+    }
 
     public event Action? CloseRequested;
     public event Action? SelectionCleared;
@@ -152,12 +208,26 @@ public partial class AiChatPanel : UserControl
         if (message.Length == 0 || GetContext?.Invoke() is not { } ctx) return;
 
         var withNote = NoteCheck.IsChecked == true;
-        var units = withNote ? NoteDocument.Units(NoteDocument.Parse(ctx.Html)) : null;
-        var numbered = units is null ? null
-            : Cap(string.Join("\n\n", units.Select((u, i) => $"[{i + 1}]\n" + NotesService.BlocksToAiMarkdown(u))), 60000);
         var history = Turns.Where(t => t.State is State.Answered or State.Edit).TakeLast(4)
             .Select(t => (Cap(t.Question, 600), Cap(t.State == State.Edit ? $"(I changed the note: {t.Preface})" : t.Answer, 800)))
             .ToList();
+
+        if (!NoteMode)
+        {
+            InputBox.Text = "";
+            StatusText.Text = "Searching your notes and screenshots…";
+            var found = await Task.Run(() => ChatRelated.Build(message, null, ""));
+            var info = found.Length == 0 ? ctx.AppInfo
+                : ctx.AppInfo + "\n\nFound in the user's own notes and screenshots for this question (search results; answer from them and name the note or screenshot):\n" + found;
+            var shared = withNote ? Cap(ctx.Html, 60000) : null;
+            await RunTurn(new Turn { Question = message }, token => AiService.AskAsync(AiPrompts.ChatAbout(history, message, ctx.Title, shared, info), token),
+                allowEdits: false);
+            return;
+        }
+
+        var units = withNote ? NoteDocument.Units(NoteDocument.Parse(ctx.Html)) : null;
+        var numbered = units is null ? null
+            : Cap(string.Join("\n\n", units.Select((u, i) => $"[{i + 1}]\n" + NotesService.BlocksToAiMarkdown(u))), 60000);
 
         var turn = new Turn
         {
@@ -246,9 +316,7 @@ public partial class AiChatPanel : UserControl
         {
             Messages.Children.Add(new TextBlock
             {
-                Text = "Ask a question about this note, or tell the AI what to change:\n\n"
-                       + "• “Summarise this in three bullets”\n• “Turn the list into a table”\n• “Make a chart from the numbers”\n• “Translate it to English”\n\n"
-                       + "A change is shown first. Nothing happens to the note until you press Apply.",
+                Text = _emptyHint,
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = Brushes.Gray,
                 FontSize = 12,
@@ -329,10 +397,17 @@ public partial class AiChatPanel : UserControl
     private Control AnswerButtons(Turn turn)
     {
         var row = new WrapPanel();
-        if (turn.Buttons is not null)
+        var buttons = turn.Buttons;
+        var onChoice = turn.OnChoice;
+        if (buttons is null && !NoteMode)
         {
-            foreach (var (action, label) in turn.Buttons)
-                row.Children.Add(SmallButton(label, label, async () => StatusText.Text = await turn.OnChoice!(action, turn.Answer), accent: row.Children.Count == 0));
+            buttons = AnswerActions ?? Array.Empty<(string, string)>();
+            onChoice = OnAnswerAction;
+        }
+        if (buttons is not null)
+        {
+            foreach (var (action, label) in buttons)
+                row.Children.Add(SmallButton(label, label, async () => StatusText.Text = await onChoice!(action, turn.Answer), accent: row.Children.Count == 0));
             AddCopyAndSpeak(row, turn);
             return row;
         }

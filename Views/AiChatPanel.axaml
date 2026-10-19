@@ -4,13 +4,18 @@
   <DockPanel>
     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
       <Button DockPanel.Dock="Right" Content="✕" Padding="8,2" AutomationProperties.Name="Close AI chat"
-              ToolTip.Tip="Hide the chat (the conversation is kept until the notes window closes)" Click="Close_Click"/>
+              ToolTip.Tip="Hide the chat (the conversation is kept until the window closes)" Click="Close_Click"/>
       <Button DockPanel.Dock="Right" Content="New chat" Margin="0,0,6,0" AutomationProperties.Name="New AI chat"
-              ToolTip.Tip="Forget this note's conversation and start again" Click="NewChat_Click"/>
-      <TextBlock Text="✨ AI chat" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+              ToolTip.Tip="Forget this conversation and start again" Click="NewChat_Click"/>
+      <StackPanel VerticalAlignment="Center">
+        <TextBlock Text="✨ AI chat" FontSize="16" FontWeight="SemiBold"/>
+        <TextBlock x:Name="ContextLabel" FontSize="11" Foreground="Gray" IsVisible="False"
+                   TextTrimming="CharacterEllipsis"/>
+      </StackPanel>
     </DockPanel>
 
     <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,8,0,0">
+      <WrapPanel x:Name="QuickActions" IsVisible="False"/>
       <Border x:Name="SelectionChip" IsVisible="False" CornerRadius="4" Padding="8,3" Background="#26808080">
         <DockPanel>
           <Button DockPanel.Dock="Right" Content="✕" Padding="6,0" Margin="6,0,0,0" Background="Transparent"

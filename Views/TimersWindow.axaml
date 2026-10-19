@@ -1,15 +1,20 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="using:ScriptAppDashboard.Views"
         x:Class="ScriptAppDashboard.Views.TimersWindow"
         Title="Interval Timers"
         Width="820" Height="600"
         MinWidth="640" MinHeight="460"
         Icon="/Assets/icon.png"
         WindowStartupLocation="CenterScreen">
+  <Grid ColumnDefinitions="*,Auto">
   <Grid ColumnDefinitions="240,*" Margin="16">
     <DockPanel Grid.Column="0" Margin="0,0,12,0">
       <Button DockPanel.Dock="Top" Content="New timer" Classes="accent" HorizontalAlignment="Stretch"
               HorizontalContentAlignment="Center" Margin="0,0,0,8" Click="New_Click"/>
+      <Button DockPanel.Dock="Top" Content="💬 Ask AI" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+              Margin="0,0,0,8" Click="Chat_Click" AutomationProperties.Name="AI chat"
+              ToolTip.Tip="Chat with the AI beside the timers (Ctrl+J): ask for a cron expression, a command, or ideas"/>
       <Panel DockPanel.Dock="Top" Margin="0,0,0,8">
         <Button x:Name="PauseButton" Content="Pause all timers ▾" HorizontalAlignment="Stretch"
                 HorizontalContentAlignment="Center" ToolTip.Tip="Silence every timer for a while (also in the tray menu)">
@@ -55,8 +60,14 @@
         <TextBlock Text="Name"/>
         <TextBox x:Name="NameBox" Watermark="Stretch break"/>
 
-        <TextBlock Text="Repeat every"/>
-        <StackPanel Orientation="Horizontal" Spacing="8">
+        <TextBlock Text="Schedule"/>
+        <ComboBox x:Name="ScheduleCombo" SelectedIndex="0" HorizontalAlignment="Stretch"
+                  SelectionChanged="Schedule_Changed" AutomationProperties.Name="Schedule type">
+          <ComboBoxItem Content="Repeat every…"/>
+          <ComboBoxItem Content="Cron expression (fixed times)"/>
+        </ComboBox>
+
+        <StackPanel x:Name="IntervalPanel" Orientation="Horizontal" Spacing="8">
           <NumericUpDown x:Name="MinutesBox" Minimum="1" Maximum="100000" Increment="1" Value="30"
                          FormatString="0.##" MinWidth="160"/>
           <ComboBox x:Name="UnitCombo" SelectedIndex="1" MinWidth="130">
@@ -64,6 +75,12 @@
             <ComboBoxItem Content="minutes"/>
             <ComboBoxItem Content="hours"/>
           </ComboBox>
+        </StackPanel>
+
+        <StackPanel x:Name="CronPanel" Spacing="4" IsVisible="False">
+          <TextBox x:Name="CronBox" Watermark="0 9 * * 1-5" FontFamily="Consolas,Menlo,monospace"
+                   AutomationProperties.Name="Cron expression" TextChanged="Cron_Changed"/>
+          <TextBlock x:Name="CronHint" FontSize="12" Foreground="Gray" TextWrapping="Wrap"/>
         </StackPanel>
 
         <TextBlock Text="When it fires"/>
@@ -108,5 +125,7 @@
                  MinHeight="110" FontFamily="Consolas,Menlo,monospace"/>
       </StackPanel>
     </ScrollViewer>
+  </Grid>
+  <views:AiChatPanel x:Name="Chat" Grid.Column="1" Width="340" Margin="0,16,16,16" IsVisible="False"/>
   </Grid>
 </Window>

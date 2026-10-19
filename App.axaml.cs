@@ -257,7 +257,7 @@ public partial class App : Application
         var before = Config.Timers.ToDictionary(t => t.Id);
         Config.Timers = timers;
         foreach (var t in timers)
-            if (!before.TryGetValue(t.Id, out var old) || old.IntervalMinutes != t.IntervalMinutes || old.Enabled != t.Enabled)
+            if (!before.TryGetValue(t.Id, out var old) || old.IntervalMinutes != t.IntervalMinutes || old.Cron != t.Cron || old.Enabled != t.Enabled)
                 TimerService.Reschedule(t.Id);
         try { SaveConfig(); } catch { RefreshTrayMenu(); }
         TimersReloaded?.Invoke();

@@ -44,6 +44,8 @@ dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 | `Views/QuickAskWindow`, `Views/AiScriptWindow` | Ask AI (single instance via `App.ShowQuickAsk`), and write-a-script-with-AI. |
 | `Views/NoteEditor.axaml(.cs)` | The WYSIWYG note editor (a UserControl): one row per block, each with a rendered `TextBlock` and a `TextBox` that is shown only while that block is edited. |
 | `Views/AiChatPanel.axaml(.cs)` | The AI chat beside a note (a UserControl in `NotesWindow`, `Ctrl+J`). One conversation per note id, kept in memory. A message is answered with Markdown, or with `@@` edit commands (`AiPrompts.Chat`) that are shown first and applied on **Apply** through the host's `ApplyEdits` / `Undo` / `Insert` delegates. `RunRequest` runs the AI menu's actions as turns of the same chat. |
+| `Views/AiPanelDock.cs` | Shows / hides the `AiChatPanel` of a window and grows the window by its width. Used by `MainWindow`, `TimersWindow`, `WorkLogWindow` (Ctrl+J). `NotesWindow` does the same by hand. |
+| `Services/CronSchedule.cs` | 5-field cron parser (`TryParse`, `Next`, `Upcoming`, local time). `IntervalTimerItem.Cron` replaces `IntervalMinutes` when set; `TimerService` skips a cron run missed by more than 2 minutes. |
 | `Views/NoteTableView.cs`, `Views/NoteChartView.cs` | Table and chart blocks in the editor (`GridBlockView`): a grid of cells (rendered / edited like blocks), and a chart (title, type, `ChartCanvas`, and its data as a `NoteTableView`). |
 | `Views/*` | One window per feature. `ToastWindow.cs` is the corner pop-up, built in code only. `UiHelpers.cs` holds `Dialogs.Confirm`. |
 
@@ -102,6 +104,7 @@ Notes, images and the work log live in `DataDir`: the `DataFolder` setting (e.g.
   - Samples skip idle time (`GetLastInputInfo`) and the lock screen (`LockApp`).
   - Elapsed time is capped at twice the sample interval, so sleep or hibernate isn't counted.
 - **AI chat panel:**
+  - Outside the notes window the panel runs in general mode (`UseGeneral`, `NoteMode` false): the host's `GetContext` returns the window's text in `Html` and its subject in `Title`, answers use `AiPrompts.ChatAbout` and never edit; the host sets `AnswerActions` / `OnAnswerAction`, `SetQuickActions`, `SetContextLabel`, and runs ready-made requests with `RunRequest` (Explain script, work report, timesheet). New windows add the panel to their layout and wrap it in an `AiPanelDock`.
   - The host (`NotesWindow`) owns the note: the panel only calls `GetContext`, `ApplyEdits`, `Undo`, `Insert`. Edits carry the note's HTML from when the question was sent; `Chat_ApplyEdits` refuses when the note has changed since (the block numbers would not fit).
   - A text box drops its selection when focus leaves it, so the host captures the selection when the pointer goes down in the panel (`Pressing` → `CaptureChatSelection`), and the editor's `GotFocus` clears it again.
   - Menu-action buttons restore the selection that was current when the request started before applying (`RunAiAction`).

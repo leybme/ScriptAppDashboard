@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:materialIcons="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
+        xmlns:views="using:ScriptAppDashboard.Views"
         x:Class="ScriptAppDashboard.Views.MainWindow"
         Title="Toolshed360"
         Width="780" Height="540"
@@ -102,6 +103,8 @@
                    Text="Tip: click a tile to run it, right-click to edit. Closing the window hides the app to the tray."/>
       </DockPanel>
     </Border>
+
+    <views:AiChatPanel x:Name="Chat" DockPanel.Dock="Right" Width="340" Margin="0,10,12,0" IsVisible="False"/>
 
     <Panel>
       <TextBlock x:Name="EmptyHint" HorizontalAlignment="Center" VerticalAlignment="Center"

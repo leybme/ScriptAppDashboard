@@ -29,6 +29,14 @@ public partial class TimersWindow : Window
         InitializeComponent();
         PlaceholderHint.Text = "Filled in when the timer fires: " +
                                string.Join(" · ", AiService.Placeholders.Select(p => $"{p.Name} {p.Description}"));
+        _dock = new AiPanelDock(this, Chat);
+        Chat.UseGeneral("Ask about timers, cron expressions or commands… (Enter sends, Shift+Enter is a new line)",
+            "Ask about your timers:\n\n• “Cron expression for weekdays at 9:30”\n• “A command that shows free disk space”\n• “Which timers fire too often?”",
+            "Send my timers", "The AI sees every timer's name, schedule and action, and the one in the editor. Untick to chat without sharing it.");
+        Chat.GetContext = () => new AiChatContext(TimersText(), "the interval and cron timers", null, null, AiPrompts.AppGuide);
+        Chat.SetQuickActions(
+            ("Cron for…", "Ask for a cron expression", () => Chat.Prefill("Cron expression for ")),
+            ("Command for…", "Ask for a shell command to use in a timer", () => Chat.Prefill("A command that ")));
         ApplyAiCommandHint();
         AppRef.SettingsChanged += ApplyAiCommandHint;
         AppRef.TimersReloaded += OnTimersReloaded;
@@ -52,6 +60,22 @@ public partial class TimersWindow : Window
             AppRef.TimersReloaded -= OnTimersReloaded;
             _countdown.Stop();
         };
+    }
+
+    private readonly AiPanelDock _dock;
+
+    private void Chat_Click(object? sender, RoutedEventArgs e) => _dock.Toggle();
+
+    /// <summary>What the chat is told: every saved timer, and the one in the editor if it isn't saved yet.</summary>
+    private string TimersText()
+    {
+        static string Line(IntervalTimerItem t) =>
+            $"- {(string.IsNullOrWhiteSpace(t.Name) ? "(unnamed)" : t.Name)}: " +
+            (string.IsNullOrWhiteSpace(t.Cron) ? $"every {FormatInterval(t.IntervalMinutes)}" : "cron " + t.Cron) +
+            $", {Describe(t.Action)}" + (t.Action == "command" ? $" `{t.Command}`" : "") + (t.Enabled ? "" : " (off)");
+        var lines = Config.Timers.Select(Line).ToList();
+        if (_current is null) lines.Add("In the editor, not saved yet:\n" + Line(ReadEditor(new IntervalTimerItem())));
+        return lines.Count == 0 ? "(no timers yet)" : string.Join("\n", lines);
     }
 
     private void ApplyPause()
@@ -84,7 +108,8 @@ public partial class TimersWindow : Window
 
     private static string DetailText(IntervalTimerItem timer)
     {
-        var text = $"every {FormatInterval(timer.IntervalMinutes)} · {Describe(timer.Action)}";
+        var when = string.IsNullOrWhiteSpace(timer.Cron) ? $"every {FormatInterval(timer.IntervalMinutes)}" : "cron " + timer.Cron.Trim();
+        var text = $"{when} · {Describe(timer.Action)}";
         if (!timer.Enabled) return text + " · off";
         if (TimerService.IsPaused) return text + " · paused";
         var left = TimerService.TimeUntilNext(timer);
@@ -178,6 +203,8 @@ public partial class TimersWindow : Window
         if (seconds < 120) { UnitCombo.SelectedIndex = 0; MinutesBox.Value = (decimal)seconds; }
         else if (seconds % 3600 == 0) { UnitCombo.SelectedIndex = 2; MinutesBox.Value = (decimal)(seconds / 3600); }
         else { UnitCombo.SelectedIndex = 1; MinutesBox.Value = (decimal)(seconds / 60); }
+        ScheduleCombo.SelectedIndex = string.IsNullOrWhiteSpace(t.Cron) ? 0 : 1;
+        CronBox.Text = t.Cron;
         ActionCombo.SelectedIndex = Math.Max(0, Array.IndexOf(Actions, t.Action));
         CommandBox.Text = t.Command;
         AiCommandBox.Text = t.AiCommand;
@@ -189,9 +216,45 @@ public partial class TimersWindow : Window
         StatusText.Text = timer is null ? "New timer — fill it in and press Save." : "";
         _suppress = false;
         ApplyActionVisibility();
+        ApplyScheduleVisibility();
     }
 
     private void Action_Changed(object? sender, SelectionChangedEventArgs e) => ApplyActionVisibility();
+
+    private void Schedule_Changed(object? sender, SelectionChangedEventArgs e) => ApplyScheduleVisibility();
+
+    private void Cron_Changed(object? sender, TextChangedEventArgs e) => UpdateCronHint();
+
+    private void ApplyScheduleVisibility()
+    {
+        // SelectionChanged fires while the XAML is still loading, before these panels exist
+        if (IntervalPanel is null || CronPanel is null) return;
+        var cron = ScheduleCombo.SelectedIndex == 1;
+        IntervalPanel.IsVisible = !cron;
+        CronPanel.IsVisible = cron;
+        UpdateCronHint();
+    }
+
+    /// <summary>Shows the next run times of the typed expression, or what is wrong with it.</summary>
+    private void UpdateCronHint()
+    {
+        if (CronHint is null || CronBox is null) return;
+        var text = (CronBox.Text ?? "").Trim();
+        if (text.Length == 0)
+        {
+            CronHint.Text = "minute hour day-of-month month day-of-week — e.g. “0 9 * * 1-5” = weekdays at 09:00, “*/15 * * * *” = every 15 minutes. Local time.";
+            return;
+        }
+        if (CronSchedule.TryParse(text, out var error) is not { } cron)
+        {
+            CronHint.Text = error;
+            return;
+        }
+        var next = cron.Upcoming(DateTime.Now, 3);
+        CronHint.Text = next.Count == 0
+            ? "This expression never matches a date."
+            : "Next: " + string.Join(" · ", next.Select(d => d.ToString("ddd d MMM HH:mm")));
+    }
 
     private void ApplyActionVisibility()
     {
@@ -206,7 +269,8 @@ public partial class TimersWindow : Window
     {
         if (e.KeyModifiers == KeyModifiers.Control)
         {
-            if (e.Key == Key.S) { SaveCurrent(); e.Handled = true; }
+            if (e.Key == Key.J) { _dock.Toggle(); e.Handled = true; }
+            else if (e.Key == Key.S) { SaveCurrent(); e.Handled = true; }
             else if (e.Key == Key.N) { New_Click(null, new RoutedEventArgs()); e.Handled = true; }
         }
         base.OnKeyDown(e);
@@ -325,6 +389,7 @@ public partial class TimersWindow : Window
         target.Name = (NameBox.Text ?? "").Trim();
         var unitSeconds = UnitCombo.SelectedIndex switch { 0 => 1.0, 2 => 3600.0, _ => 60.0 };
         target.IntervalMinutes = (double)(MinutesBox.Value ?? 30m) * unitSeconds / 60.0;
+        target.Cron = ScheduleCombo.SelectedIndex == 1 ? (CronBox.Text ?? "").Trim() : "";
         target.Action = Actions[Math.Clamp(ActionCombo.SelectedIndex, 0, Actions.Length - 1)];
         target.Command = (CommandBox.Text ?? "").Trim();
         target.AiCommand = (AiCommandBox.Text ?? "").Trim();
@@ -340,7 +405,16 @@ public partial class TimersWindow : Window
     private IntervalTimerItem? SaveCurrent()
     {
         var draft = ReadEditor(new IntervalTimerItem());
-        if (draft.IntervalMinutes * 60 < 5)
+        if (ScheduleCombo.SelectedIndex == 1)
+        {
+            if (CronSchedule.TryParse(draft.Cron, out var cronError) is not { } cron || cron.Next(DateTime.Now) is null)
+            {
+                StatusText.Text = cronError.Length > 0 ? cronError : "This cron expression never matches a date.";
+                CronBox.Focus();
+                return null;
+            }
+        }
+        else if (draft.IntervalMinutes * 60 < 5)
         {
             StatusText.Text = "The shortest interval is 5 seconds.";
             MinutesBox.Focus();
@@ -374,7 +448,9 @@ public partial class TimersWindow : Window
             return timer;
         }
         TimerService.Reschedule(timer.Id);
-        StatusText.Text = timer.Enabled ? $"Saved. Fires every {FormatInterval(timer.IntervalMinutes)}." : "Saved (disabled).";
+        StatusText.Text = !timer.Enabled ? "Saved (disabled)."
+            : timer.Cron.Length > 0 ? "Saved. Fires on the cron schedule."
+            : $"Saved. Fires every {FormatInterval(timer.IntervalMinutes)}.";
         RefreshList(timer.Id, keepEditor: true);
         return timer;
     }

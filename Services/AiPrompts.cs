@@ -182,6 +182,33 @@ public static class AiPrompts
         return sb.ToString();
     }
 
+    /// <summary>
+    /// The chat panel of a window that is not the notes editor (dashboard, timers, work log). <paramref name="context"/> is
+    /// what the window shows (null when the user chose not to share it); the AI answers in Markdown and never edits anything.
+    /// </summary>
+    public static string ChatAbout(IReadOnlyList<(string Question, string Answer)> history, string message,
+        string subject, string? context, string? appInfo = null)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("You are the assistant in a chat panel of Toolshed360, a tray app with a dashboard of scripts, notes, interval timers and a work log. " +
+                      $"The user is looking at: {subject}. Answer in Markdown, short and direct.");
+        sb.AppendLine("You cannot press buttons or change anything yourself: say which button, menu item or setting the user should use. " +
+                      "When you write a script, a command or a cron expression, put it in a fenced code block.");
+        sb.AppendLine(AiService.LanguageRule);
+        if (history.Count > 0)
+        {
+            sb.AppendLine().AppendLine("The chat so far:");
+            foreach (var (q, a) in history) sb.AppendLine($"User: {q}").AppendLine($"You: {a}");
+        }
+        if (!string.IsNullOrWhiteSpace(context))
+            sb.AppendLine().AppendLine($"What the window shows ({subject}):").AppendLine(context);
+        else
+            sb.AppendLine().AppendLine("The user chose not to share what the window shows.");
+        if (appInfo is { Length: > 0 }) sb.AppendLine().AppendLine("About the app:").AppendLine(appInfo);
+        sb.AppendLine().AppendLine("The user now says:").Append(message);
+        return sb.ToString();
+    }
+
     /// <summary>What the chat knows about the app's features; the current state is added after it (see NotesWindow).</summary>
     public const string AppGuide = """
         Toolshed360 is a tray app with a dashboard of the user's scripts, notes, interval timers, a work log and AI features.

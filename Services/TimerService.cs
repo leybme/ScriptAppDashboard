@@ -91,16 +91,19 @@ public static class TimerService
                 var now = DateTime.Now;
                 foreach (var t in _config.Timers.ToArray())
                 {
-                    if (!t.Enabled || t.IntervalMinutes <= 0) continue;
+                    var cron = ParseCron(t);
+                    if (!t.Enabled || (cron is null && t.IntervalMinutes <= 0)) continue;
                     if (!NextRun.TryGetValue(t.Id, out var next))
                     {
-                        NextRun[t.Id] = now.AddMinutes(t.IntervalMinutes);
+                        if (ScheduleAfter(t, cron, now) is { } first) NextRun[t.Id] = first;
                         continue;
                     }
                     if (now >= next)
                     {
-                        NextRun[t.Id] = now.AddMinutes(t.IntervalMinutes);
-                        due.Add(t);
+                        if (ScheduleAfter(t, cron, now) is { } following) NextRun[t.Id] = following;
+                        else NextRun.Remove(t.Id);
+                        // a cron run missed by more than 2 minutes (sleep, pause) is skipped, not run late
+                        if (cron is null || now - next < TimeSpan.FromMinutes(2)) due.Add(t);
                     }
                 }
             }
@@ -111,6 +114,12 @@ public static class TimerService
         }
         foreach (var t in due) RunNow(t);
     }
+
+    private static CronSchedule? ParseCron(IntervalTimerItem t) =>
+        string.IsNullOrWhiteSpace(t.Cron) ? null : CronSchedule.TryParse(t.Cron, out _);
+
+    private static DateTime? ScheduleAfter(IntervalTimerItem t, CronSchedule? cron, DateTime now) =>
+        cron is null ? now.AddMinutes(t.IntervalMinutes) : cron.Next(now);
 
     /// <summary>Runs a timer immediately on a worker thread (skipped if it is still running from last time).</summary>
     public static void RunNow(IntervalTimerItem timer)
