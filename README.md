@@ -30,6 +30,7 @@ Write notes the way you would in a word processor. Headings, **bold**, *italic*,
 ![Notes window with the visual editor](docs/images/screenshotNotes.png)
 
 - **Toolbar** (one row of icons; hover one for its name and shortcut):
+  - Hide or show the note list, so the note gets the whole width (remembered; Ctrl+F shows it again to search). While it is hidden, a **New note** button sits next to it.
   - Undo and redo.
   - Bold (Ctrl+B), Italic (Ctrl+I), inline code and Link (Ctrl+K).
   - Headings (click again for a smaller one), quote, bulleted and numbered lists, and time bullets. The button of the line you are in is highlighted, and the heading button shows its level (H1, H2, H3).

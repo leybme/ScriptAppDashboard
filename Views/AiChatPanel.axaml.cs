@@ -262,9 +262,15 @@ public partial class AiChatPanel : UserControl
 
         var list = Turns; // the conversation this question belongs to, even if another tab is shown while it is searched
         var withNote = NoteCheck.IsChecked == true;
-        var history = list.Where(t => t.State is State.Answered or State.Edit).TakeLast(4)
-            .Select(t => (Cap(t.Question, 600), Cap(t.State == State.Edit ? $"(I changed the note: {t.Preface})" : t.Answer, 800)))
-            .ToList();
+        // the last turn goes in (almost) whole: "translate that" or "shorten it" refers to it, and a cut answer gives a cut translation;
+        // the three before it are only reminders and stay short
+        var previous = list.Where(t => t.State is State.Answered or State.Edit).TakeLast(4).ToList();
+        var history = previous.Select((t, i) =>
+        {
+            var latest = i == previous.Count - 1;
+            return (Cap(t.Question, latest ? 12000 : 600),
+                Cap(t.State == State.Edit ? $"(I changed the note: {t.Preface})" : t.Answer, latest ? 24000 : 800));
+        }).ToList();
 
         if (!NoteMode)
         {

@@ -66,6 +66,7 @@ public partial class NotesView : ShellTab
         _autoSave.Tick += (_, _) => { _autoSave.Stop(); if (_dirty) SaveCurrent(); };
         HtmlBox.AddHandler(KeyDownEvent, HtmlBox_KeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         ApplyTimeButton();
+        ApplyListPane();
         var app =(App)Avalonia.Application.Current!;
         app.SettingsChanged += ApplyTimeButton;
         Editor.PictureError += message => StatusText.Text = message;
@@ -262,7 +263,12 @@ public partial class NotesView : ShellTab
             {
                 case Key.S: SaveCurrent(); e.Handled = true; break;
                 case Key.N: NewNote(); e.Handled = true; break;
-                case Key.F: SearchBox.Focus(); SearchBox.SelectAll(); e.Handled = true; break;
+                case Key.F:
+                    if (AppRef.Config.NotesListHidden) SetListHidden(false); // the search box is in the list
+                    SearchBox.Focus();
+                    SearchBox.SelectAll();
+                    e.Handled = true;
+                    break;
                 case Key.B: Bold_Click(null, e); e.Handled = true; break;
                 case Key.I: Italic_Click(null, e); e.Handled = true; break;
                 case Key.K: Link_Click(null, e); e.Handled = true; break;
@@ -520,6 +526,27 @@ public partial class NotesView : ShellTab
     }
 
     private void New_Click(object? sender, RoutedEventArgs e) => NewNote();
+
+    // ---- the note list can be hidden, so the note gets the whole width ----
+
+    private void ListToggle_Click(object? sender, RoutedEventArgs e) => SetListHidden(!AppRef.Config.NotesListHidden);
+
+    private void SetListHidden(bool hidden)
+    {
+        AppRef.Config.NotesListHidden = hidden;
+        ApplyListPane();
+        try { AppRef.SaveConfig(); } catch { /* still hidden for this session */ }
+    }
+
+    private void ApplyListPane()
+    {
+        var hidden = AppRef.Config.NotesListHidden;
+        ListPane.IsVisible = !hidden;
+        Layout.ColumnDefinitions[0].Width = hidden ? new GridLength(0) : new GridLength(260);
+        NewNoteButton.IsVisible = hidden;
+        ListToggleButton.Classes.Set("on", !hidden);
+        ToolTip.SetTip(ListToggleButton, hidden ? "Show the note list (Ctrl+F searches it)" : "Hide the note list, so the note gets the whole width");
+    }
 
     private void RefreshList(Guid? select)
     {

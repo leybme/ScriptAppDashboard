@@ -32,6 +32,9 @@ public class AppConfig
     /// <summary>Show the "Copy time" button (main window) and "Time" button (notes).</summary>
     public bool TimestampButtonEnabled { get; set; } = true;
 
+    /// <summary>The notes tab hides its note list, so the note gets the whole width.</summary>
+    public bool NotesListHidden { get; set; }
+
     /// <summary>.NET date format ("yyyy-MM-dd HH:mm") or a template with {…} parts ("[{HH:mm}] ").</summary>
     public string TimestampFormat { get; set; } = "yyyy-MM-dd HH:mm:ss";
 

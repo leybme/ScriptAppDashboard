@@ -47,8 +47,8 @@
       <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
   </views:ShellTab.Styles>
-  <Grid ColumnDefinitions="260,*" Margin="16">
-    <DockPanel Grid.Column="0" Margin="0,0,12,0">
+  <Grid x:Name="Layout" ColumnDefinitions="260,*" Margin="16">
+    <DockPanel x:Name="ListPane" Grid.Column="0" Margin="0,0,12,0">
       <Button DockPanel.Dock="Top" Content="New note" Classes="accent" HorizontalAlignment="Stretch"
               HorizontalContentAlignment="Center" Click="New_Click"/>
       <TextBox x:Name="SearchBox" DockPanel.Dock="Top" Margin="0,8" Watermark="Search title, tags, text…"/>
@@ -64,6 +64,14 @@
 
     <DockPanel Grid.Column="1">
       <WrapPanel x:Name="FormatBar" DockPanel.Dock="Top">
+        <Button x:Name="ListToggleButton" AutomationProperties.Name="Note list" Click="ListToggle_Click">
+          <mi:MaterialIcon Kind="PageLayoutSidebarLeft"/>
+        </Button>
+        <Button x:Name="NewNoteButton" AutomationProperties.Name="New note" ToolTip.Tip="New note (Ctrl+N)"
+                IsVisible="False" Click="New_Click">
+          <mi:MaterialIcon Kind="NotePlusOutline"/>
+        </Button>
+        <Border Classes="sep"/>
         <Button x:Name="UndoButton" AutomationProperties.Name="Undo" ToolTip.Tip="Undo (Ctrl+Z)" Click="Undo_Click">
           <mi:MaterialIcon Kind="Undo"/>
         </Button>
