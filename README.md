@@ -14,11 +14,11 @@ A small cross-platform (Windows / macOS) desktop app for the people who live in 
 - **Custom icon, path and parameters:** each tile has a name, script path, command-line parameters, working directory and an optional icon. Pick one of 7,000+ searchable **Material Design Icons** (Apache 2.0, via the MIT-licensed `Material.Icons.Avalonia` package) or use your own .png / .jpg / .ico. Without an icon, a coloured initials tile is generated.
 - **Interpreter support:** detected from the extension (`.py`, `.ps1`, `.sh`, `.js`, `.bat`/`.cmd`, `.exe`). You can also pick one explicitly, including a *custom command* such as a venv's `python.exe -u`.
 - **Scan running scripts and apps:** finds scripts that are already running (python, node, powershell, bash, …) and open apps, and adds them to the dashboard with one click, parameters included.
-- **One window with tabs:** Apps, Notes, Captures, Timers, Work Log, Search and Settings are tabs in one window. The AI chat is on the left, the tab list next to it and the tab content on the right. The window starts compact, with just the chat and the tab list; click a tab to open its content (the window widens to the right), click the open tab again to collapse it. The window remembers how wide you made the content (also after a restart). You can also hide the chat with **Ask AI** (`Ctrl+J`); with both hidden the window becomes a slim floating dock of tab buttons (drag the handle at the top to move it), and clicking a tab or **Ask AI** brings the full window back. The screenshots below were taken before this layout and show each part as it was.
+- **One window with tabs:** Apps, Notes, Captures, Timers, Work Log, Search and Settings are tabs in one window. The AI chat is on the left, the tab list next to it and the tab content on the right. The window starts compact, with just the chat and the tab list; click a tab to open its content (the window widens to the right), click the open tab again to collapse it. The window remembers how wide you made the content (also after a restart). You can also hide the chat with **Ask AI** (`Ctrl+J`); with both hidden the window becomes a slim floating dock of tab buttons (drag the handle at the top to move it), and clicking a tab or **Ask AI** brings the full window back.
 - **Light and dark theme:** **Settings → General → Theme** switches between following the system, dark and light, at once and without pressing Save.
 - **One text size:** the interface uses a small set of sizes (11 for hints, 12 for secondary text, 13 for normal text, 15 for section headers); your notes use 14.
 - **Pin to top:** the small **Pin to top** button above **Hide to Tray** keeps the window above all other windows (it turns red while pinned, and the choice is remembered).
-- **Hide to tray:** closing the window hides the app to the system tray or menu bar. The tray menu lists your scripts, so you can launch them without opening the window.
+- **Hide to tray:** closing the window hides the app to the system tray or menu bar. The tray menu opens the dashboard, starts a new note, opens Ask AI, takes a screenshot, and goes to Captures, Interval Timers, Search, Work Log and Settings. It copies the time and pauses or resumes the timers too. Below those it lists your first 15 scripts, so you can launch them without opening the window.
 - **Start with the system:** one checkbox registers auto-start. It uses the `HKCU\...\Run` registry key on Windows and a `~/Library/LaunchAgents` plist on macOS. The app starts hidden in the tray (`--minimized`).
 - **Keep console open:** an optional per-script setting. It wraps the run in `cmd /k` on Windows, or a Terminal `.command` file on macOS, so you can read the output after the script finishes.
 
@@ -28,7 +28,7 @@ A small cross-platform (Windows / macOS) desktop app for the people who live in 
 
 Write notes the way you would in a word processor. Headings, **bold**, *italic*, links, lists and code show formatted as you type. Only the line you are editing shows its formatting marks, Obsidian-style, so you can still fix them by hand.
 
-![Notes window with the visual editor](docs/images/screenshotNotes.png)
+![The Notes tab with the visual editor](docs/images/screenshotNotes.png)
 
 - **Toolbar** (one row of icons; hover one for its name and shortcut):
   - Hide or show the note list, so the note gets the whole width (remembered; Ctrl+F shows it again to search). While it is hidden, a **New note** button sits next to it.
@@ -58,7 +58,7 @@ Write notes the way you would in a word processor. Headings, **bold**, *italic*,
 - **Charts:** the chart button (or `/chart`) adds a bar, line or pie chart drawn from a small data table: labels in the first column, one series per column. **Edit data** shows the numbers, the type box switches between bar, line and pie, and hovering shows the values. Right-click a table → **Make a chart from this table**. AI answers can include charts too, as a ```` ```chart ```` block holding CSV or a Markdown table.
 - **Edit HTML:** notes are stored as clean HTML. **Edit HTML** shows the source; anything the visual editor can't represent, such as styled elements or tables with merged cells, is kept as an HTML block.
 - **Search and tags:** search by title, tags or text. Ctrl+N starts a new note, Ctrl+F searches. The word count is shown under the note.
-- **Export:** export one note or all matching notes as Markdown, export a note as a standalone HTML file (pictures and charts embedded, each chart with its data underneath), or preview it in the browser.
+- **Export:** export one note or all matching notes as Markdown, copy a note as Markdown, export a note as a standalone HTML file (pictures and charts embedded, each chart with its data underneath), or preview it in the browser.
 
 The paragraph being edited shows its formatting marks:
 
@@ -96,7 +96,7 @@ When turned on, the app records which window you work in about every 30 seconds:
 - scripts you launch from the dashboard,
 - timer runs and new notes.
 
-Idle time (5 minutes without input by default) and the lock screen are not counted. The Work Log window shows time per app, per window or browser tab, per hour of the day and per day for today, the last 7 days or the last 30 days. You can limit it to your working hours (for example 09:00–18:00, Mon–Fri; night shifts are supported) and copy the summary as Markdown. The status bar shows today's active time.
+Idle time (5 minutes without input by default) and the lock screen are not counted. The Work Log tab shows time per app, per window or browser tab, per hour of the day and per day for today, the last 7 days or the last 30 days. You can limit it to your working hours (for example 09:00–18:00, Mon–Fri; night shifts are supported) and copy the summary as Markdown. Under the tab list, a **Today 2h 14m** button shows today's active time; click it to open the Work Log. It reads **Work log off** while recording is turned off.
 
 ![Work log](docs/images/screenshotWorkLog.png)
 
@@ -112,23 +112,23 @@ One search box (the Search tab, or Ctrl+F) looks through your apps, notes, scree
 
 ### Screenshots with annotations
 
-Press `Ctrl+Alt+C` anywhere (Windows; change it in **Settings → Capture**), or use **Captures** in the tray or main window. The screen freezes: drag a region, click the outlined window to take it, press `F` for everything, `Esc` or right-click to cancel. The picture opens in an editor, like Snagit:
+Press `Ctrl+Alt+C` anywhere (Windows; change it in **Settings → Capture**), or use **Capture region** in the Captures tab or **Capture Screenshot** in the tray. The screen freezes: drag a region, click the outlined window to take it, press `F` for everything, `Esc` or right-click to cancel. The picture opens in an editor, like Snagit:
 
-- **Tools**: box, ellipse, arrow, line, text, callout (a speech box pointing at an anchor), numbered step, highlight, **redact** (solid cover), **blur** (mosaic) and crop. Pick a colour, line width and text size; drag shapes to move them, drag the handles to reshape them, `Shift` keeps lines at 45° and boxes square. Undo and redo cover everything.
-- **Keys**: each tool has a letter (`V` select, `R` box, `E` ellipse, `A` arrow, `L` line, `T` text, `S` callout, `N` step, `H` highlight, `X` redact, `B` blur, `G` grab text, `C` crop; hover a tool to see it). Step, highlight, redact and blur stay on, so you can number 1, 2, 3 or black out several things in a row; `Esc` ends them. `Esc` in the text box goes back to the picture. `Ctrl+0` fits the picture, `Ctrl++` / `Ctrl+-` zoom.
+- **Tools**: box, ellipse, arrow, line, text, callout (a speech box pointing at an anchor), numbered step, highlight, **redact** (solid cover), **blur** (mosaic) and crop. Pick a colour, line width and text size (the sliders show the size in px); drag shapes to move them, drag the handles to reshape them, `Shift` keeps lines at 45° and boxes square. Undo and redo cover everything.
+- **Keys**: each tool has a letter (`V` select, `R` box, `E` ellipse, `A` arrow, `L` line, `T` text, `S` callout, `N` step, `H` highlight, `X` redact, `B` blur, `G` grab text, `C` crop; hover a tool to see it). Step, highlight, redact and blur stay on, so you can number 1, 2, 3 or black out several things in a row; `Esc` ends them. `Esc` in the text box goes back to the picture. `Ctrl+0` fits the picture (click **Fit** again for the real size), `Ctrl++` / `Ctrl+-` zoom.
 - **Words are searchable**: type text on any annotation, then add a title, tags and a description. Everything is saved automatically, and the original picture is never changed (except by crop), so annotations stay editable.
 - **Text in the picture** is read with the Windows OCR and indexed too, so you can find a screenshot by what is written in it. Turn it off in Settings → Capture.
-- **Find them again**: the **Captures** window shows a thumbnail grid with its own search, and the main search (`Ctrl+F`) lists captures with the matching words. Right-click a thumbnail to copy or delete it without opening it.
+- **Find them again**: the **Captures** tab shows a thumbnail grid with its own search, and the main search (`Ctrl+F`) lists captures with the matching words. Right-click a thumbnail to copy or delete it without opening it.
 - **Use them**: copy the annotated picture, save it as a PNG, or make a new note holding the picture and its annotation words. You can also annotate a picture file or the picture on the clipboard.
 - **AI**: tell the AI what to do (“redact all email addresses”, “number the buttons”, “box the error message”). The AI reads text only, so it gets the OCR text with positions and the current annotations, and answers with changes; **Ctrl+Z** undoes them. **Title and tags** suggests a title, tags and a description from the text, and a capture closed without a title gets one automatically when the AI title option in **Settings → AI** is on.
 
 ![Annotating a screenshot: boxes, arrow, steps, callout, redaction and the details panel](docs/images/screenshotCaptureEditor.png)
 
-![The Captures window: thumbnails with their annotation words](docs/images/screenshotCaptures.png)
+![The Captures tab: thumbnails with their annotation words](docs/images/screenshotCaptures.png)
 
 ### Copy time
 
-Many tasks need the current time pasted into a file or a ticket. **Copy time** in the main window or the tray copies it in your chosen format. Use a .NET date format or a template such as `[{yyyy-MM-dd HH:mm}]`, and pick a preset from Settings. The same format is used by the **Time** button in notes, and the button can be switched off.
+Many tasks need the current time pasted into a file or a ticket. **Copy time** (in the Apps tab or the tray) copies it in your chosen format. Use a .NET date format or a template such as `[{yyyy-MM-dd HH:mm}]`, and pick a preset from Settings. The same format is used by the **Time** button in notes, and the button can be switched off.
 
 ![Timestamp settings](docs/images/screenshotSettingsTimestamp.png)
 
@@ -142,7 +142,7 @@ The AI features run the [Claude Code](https://docs.claude.com/en/docs/claude-cod
 
 Kiro is listed as a provider and will be supported in a later version. The **Test** button checks that everything works.
 
-- **Ask AI**: a quick question from the main window, the tray, or the global hotkey `Ctrl+Alt+Space` (Windows; set it in Settings). Follow-up questions see the earlier ones. You can include the clipboard or the window you were working in, and save the answer as a note.
+- **Ask AI**: opens the chat panel beside the tab in front. Use the **Ask AI** button (`Ctrl+J`), the tray entry, or the global hotkey `Ctrl+Alt+Space` (Windows; set it in Settings). Follow-up questions see the earlier ones, and the newest answer goes back whole, so "translate that" or "shorten it" works on all of it. A translation with no language named goes into the language of your request when that differs from the text, else into your answer language. Answers can be copied, spoken or saved as a note.
 - **Notes**: the **✨ AI** menu improves, shortens, fixes or translates the selected text, or the whole note when nothing is selected. It can also continue writing, summarise the note, extract to-dos, turn raw meeting notes into minutes, and suggest a title and tags. The answers appear in the **AI chat** beside the note, where you choose whether to replace, insert or save them as a new note. A note saved without a title gets an AI title and tags automatically.
 - **Learning English**: right-click a word in a note (it is picked for you) or select a sentence first. **🔊 Speak** reads it aloud (or the whole paragraph when nothing is selected; **🔉 Speak slowly** is slower) using the system voice. **✨ Explain (for learning English)** gives the meaning, pronunciation, examples and a translation into your AI answer language (the answer appears formatted in the AI chat, with **Insert below**, **Copy** and **🔊 Speak** buttons), and the same menu has Ask AI, Translate and the other rewrites.
 - **AI chat**: the chat panel is on the left of the window and open when the app starts (`Ctrl+J` or **Ask AI** hides and shows it). On the Notes tab, ask a question about the note, or tell the AI what to change in your own words, such as "read the sales numbers and show them as a bar chart", "turn the list into a table" or "add a total row". A question gets an answer you can insert below the paragraph you were in, use to replace the selected text, copy, speak or save as a new note. A change is shown first (**N changes**, expandable); nothing happens to the note until you press **Apply**, and **Undo** puts it back. The AI changes only the parts it needs to. Selected text is sent as context (shown above the message box), and untick **Send the note** to chat without sharing it. Each note has its own conversation, kept until the app quits. The **✨ AI** menu's actions (and **Ask AI to change the note…**) use the same panel.
@@ -151,11 +151,13 @@ Kiro is listed as a provider and will be supported in a later version. The **Tes
 - **Scripts**: right-click a tile and choose **Explain with AI…** to see what a script does and anything risky before you run it; the answer appears in the dashboard's chat panel. **AI Script** writes a new script from a description; you review it before it's saved and added as a tile.
 - **Timers**: ask the chat for a cron expression or a command, and it sees your timers and the one in the editor.
 
-![Ask AI to change the note: type an instruction](docs/images/screenshotAskAiDialog.png)
+Ask in the chat, for example "Read the drink sales numbers and show them as a bar chart". The change is shown first, and you can expand it to see what will be added. Nothing happens to the note until you press **Apply**:
 
-The answer is shown first. **Apply to the note** puts the chart right after the sentence with the numbers:
+![The AI chat proposes one change to the note: a bar chart of the sales numbers](docs/images/screenshotAskAiChat.png)
 
-![The note after the AI added a bar chart of the sales numbers](docs/images/screenshotAskAiResult.png)
+After **Apply** the chart sits right after the sentence with the numbers, and **Undo** puts the note back:
+
+![The note after Apply: a bar chart of the sales numbers](docs/images/screenshotAskAiResult.png)
 
 Nothing is sent to the AI unless you use one of these features, set up an AI timer, or leave the automatic title and day summary turned on. Both can be switched off in Settings → AI.
 
@@ -221,8 +223,8 @@ The pull request template in `.github/PULL_REQUEST_TEMPLATE.md` pre-fills every 
 
 In **Settings → General**, press **Use OneDrive** (or **Choose folder…** for Dropbox, Google Drive or any synced folder) and **Save**. Your notes, pictures and work log are copied there and the app restarts. Do the same on your other PCs.
 
-- **Notes** are one file each, so two PCs only clash when both change the same note. Changes from another PC appear in the open notes window within seconds. If you were editing that same note, nothing is lost: the other version is kept as a separate "(conflicting copy)" note. A conflict copy made by OneDrive itself is handled the same way.
-- **The work log**: each PC writes its own files, and the Work Log window and AI reports add up the time from all of them.
+- **Notes** are one file each, so two PCs only clash when both change the same note. Changes from another PC appear in the open Notes tab within seconds. If you were editing that same note, nothing is lost: the other version is kept as a separate "(conflicting copy)" note. A conflict copy made by OneDrive itself is handled the same way.
+- **The work log**: each PC writes its own files, and the Work Log tab and AI reports add up the time from all of them.
 - **Settings and scripts** stay on each PC, because script paths differ between machines. Tick **Share the interval timers** to give every PC the same timers.
 - Window titles from the work log are then stored in your cloud folder. Leave the data folder on **Only this PC** if you don't want that.
 
