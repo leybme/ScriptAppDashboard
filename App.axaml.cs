@@ -336,8 +336,6 @@ public partial class App : Application
 
     // ---- AI ---------------------------------------------------------------------------
 
-    private Views.QuickAskWindow? _quickAskWindow;
-
     /// <summary>Why the "Ask AI" hotkey could not be registered, or null.</summary>
     public string? HotkeyError { get; private set; }
 
@@ -368,20 +366,6 @@ public partial class App : Application
             changed = true;
         }
         if (changed) RefreshTrayMenu(); // the entries show a hotkey only when it works
-    }
-
-    /// <param name="foreground">The window that was in front when the hotkey was pressed.</param>
-    public void ShowQuickAsk(OpenWindow? foreground = null)
-    {
-        if (_quickAskWindow is null)
-        {
-            _quickAskWindow = new Views.QuickAskWindow();
-            _quickAskWindow.Closed += (_, _) => _quickAskWindow = null;
-        }
-        _quickAskWindow.Show();
-        if (_quickAskWindow.WindowState == WindowState.Minimized) _quickAskWindow.WindowState = WindowState.Normal;
-        _quickAskWindow.Activate();
-        _quickAskWindow.Summon(foreground);
     }
 
     /// <summary>Saves a note made outside the notes window (AI answers, day summaries) and shows it in an open notes window.</summary>

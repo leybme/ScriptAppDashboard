@@ -370,8 +370,7 @@ public static class AiService
         new(@"\{(today_summary|week_summary|current_app|clipboard|today_notes|date|time)\}", RegexOptions.Compiled);
 
     /// <summary>Fills in the {placeholders}. Reads files and the clipboard, so call it off the UI thread.</summary>
-    /// <param name="foreground">The window that was in front when the request started (defaults to the one in front now).</param>
-    public static string ExpandPlaceholders(string prompt, OpenWindow? foreground = null)
+    public static string ExpandPlaceholders(string prompt)
     {
         if (!prompt.Contains('{')) return prompt;
         return PlaceholderPattern.Replace(prompt, m =>
@@ -382,7 +381,7 @@ public static class AiService
                 {
                     "today_summary" => WorkLogContext(DateTime.Today, DateTime.Today),
                     "week_summary" => WorkLogContext(DateTime.Today.AddDays(-6), DateTime.Today),
-                    "current_app" => (foreground ?? WorkLogService.Foreground()) is { } w ? $"{w.App} — {w.Title}" : "(unknown)",
+                    "current_app" => WorkLogService.Foreground() is { } w ? $"{w.App} — {w.Title}" : "(unknown)",
                     "clipboard" => ReadClipboard(),
                     "today_notes" => TodayNotes(),
                     "date" => DateTime.Now.ToString("dddd yyyy-MM-dd"),
